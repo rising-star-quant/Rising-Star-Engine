@@ -1,0 +1,6 @@
+{
+  "name": "Rising Star Trend Engine v2.0",
+  "description": "Advanced trend discovery, velocity analytics, predictive scoring, and market intelligence engine.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

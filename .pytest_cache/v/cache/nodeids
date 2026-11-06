@@ -1,0 +1,18 @@
+[
+  "rising-star-engine/tests/test_connectors.py::TestPydanticModels::test_company_profile_sanitization",
+  "rising-star-engine/tests/test_connectors.py::TestPydanticModels::test_market_data_payload_to_dataframe",
+  "rising-star-engine/tests/test_connectors.py::TestPydanticModels::test_ohlcv_bar_coercion_and_none_volume",
+  "rising-star-engine/tests/test_connectors.py::TestPydanticModels::test_ohlcv_bar_valid",
+  "rising-star-engine/tests/test_connectors.py::TestYFinanceDataConnector::test_batch_payload_resilience",
+  "rising-star-engine/tests/test_connectors.py::TestYFinanceDataConnector::test_fetch_historical_ohlcv_success",
+  "rising-star-engine/tests/test_connectors.py::TestYFinanceDataConnector::test_fetch_profile_success",
+  "rising-star-engine/tests/test_connectors.py::TestYFinanceDataConnector::test_fetch_ticker_not_found_empty_dataframe",
+  "rising-star-engine/tests/test_connectors.py::TestYFinanceDataConnector::test_fetch_ticker_payload_full_pipeline",
+  "rising-star-engine/tests/test_connectors.py::TestYFinanceDataConnector::test_rate_limit_backoff_and_failure",
+  "rising-star-engine/tests/test_connectors.py::TestYFinanceDataConnector::test_transient_error_retry_success",
+  "rising-star-engine/tests/test_engines.py::TestUniverseScanner::test_allowed_sectors_whitelist",
+  "rising-star-engine/tests/test_engines.py::TestUniverseScanner::test_composite_universe_deduplication",
+  "rising-star-engine/tests/test_engines.py::TestUniverseScanner::test_filter_universe_criteria_pipeline",
+  "rising-star-engine/tests/test_engines.py::TestUniverseScanner::test_get_index_constituents",
+  "rising-star-engine/tests/test_engines.py::TestUniverseScanner::test_scan_and_generate_payload_prd_contract"
+]
