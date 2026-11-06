@@ -37,3 +37,6 @@ jobs:
           RSTE_ENV: testing
         run: |
           python -m pytest rising-star-engine/tests/ -v --durations=10
+
+
+#TRIGGER BUILD
