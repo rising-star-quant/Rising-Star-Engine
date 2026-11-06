@@ -1,0 +1,39 @@
+name: Rising Star Engine CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    name: Unit Tests & Code Validation
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: 'rising-star-engine/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r rising-star-engine/requirements.txt
+
+      - name: Run Pytest Suite with Coverage
+        env:
+          PYTHONPATH: rising-star-engine
+          RSTE_ENV: testing
+        run: |
+          python -m pytest rising-star-engine/tests/ -v --durations=10

@@ -293,6 +293,69 @@ class YFinanceDataConnector:
             avg_volume_30d=raw_info.get("avg_volume_30d"),
         )
 
+    def fetch_financials(self, ticker: str, ticker_obj: Optional[yf.Ticker] = None) -> Dict[str, Any]:
+        """
+        Fetches core fundamental metrics for the Fundamental Disconnect Guard:
+        - revenue_growth_qoq / revenueGrowth
+        - free_cash_flow / freeCashflow
+        - debt_to_equity / debtToEquity
+        """
+        clean_ticker = ticker.strip().upper()
+        t = ticker_obj or yf.Ticker(clean_ticker, session=self.session)
+
+        def _get_financials() -> Dict[str, Any]:
+            metrics = {
+                "revenue_growth_qoq": None,
+                "free_cash_flow": None,
+                "debt_to_equity": None,
+                "operating_cash_flow": None,
+            }
+            try:
+                info = t.info
+                if isinstance(info, dict) and info:
+                    # Revenue Growth (QoQ / YoY from quarterly statements)
+                    rev_growth = info.get("revenueGrowth")
+                    if rev_growth is not None:
+                        metrics["revenue_growth_qoq"] = float(rev_growth)
+
+                    # Free Cash Flow
+                    fcf = info.get("freeCashflow")
+                    if fcf is not None:
+                        metrics["free_cash_flow"] = float(fcf)
+
+                    # Operating Cash Flow
+                    ocf = info.get("operatingCashflow")
+                    if ocf is not None:
+                        metrics["operating_cash_flow"] = float(ocf)
+
+                    # Debt to Equity: yfinance often reports as percentage (e.g. 65.0 for 0.65)
+                    dte = info.get("debtToEquity")
+                    if dte is not None:
+                        val = float(dte)
+                        # Normalize if expressed as percentage > 10
+                        metrics["debt_to_equity"] = round(val / 100.0, 4) if val > 10.0 else round(val, 4)
+            except Exception as e:
+                logger.debug(f"Failed to extract info financials for {clean_ticker}: {e}")
+
+            # Fallback to cashflow statement if freeCashflow was missing
+            if metrics["free_cash_flow"] is None:
+                try:
+                    cf = getattr(t, "cashflow", None)
+                    if cf is not None and not cf.empty:
+                        # Free Cash Flow = Operating Cash Flow + Capital Expenditure (CapEx is typically negative)
+                        if "Free Cash Flow" in cf.index:
+                            metrics["free_cash_flow"] = float(cf.loc["Free Cash Flow"].iloc[0])
+                        elif "Operating Cash Flow" in cf.index and "Capital Expenditure" in cf.index:
+                            ocf_val = float(cf.loc["Operating Cash Flow"].iloc[0])
+                            capex_val = float(cf.loc["Capital Expenditure"].iloc[0])
+                            metrics["free_cash_flow"] = ocf_val + capex_val
+                except Exception as e:
+                    logger.debug(f"Cashflow statement fallback failed for {clean_ticker}: {e}")
+
+            return metrics
+
+        return self._execute_with_backoff(f"fetch_financials({clean_ticker})", _get_financials)
+
     def fetch_historical_ohlcv(
         self,
         ticker: str,

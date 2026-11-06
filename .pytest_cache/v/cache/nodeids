@@ -10,9 +10,22 @@
   "rising-star-engine/tests/test_connectors.py::TestYFinanceDataConnector::test_fetch_ticker_payload_full_pipeline",
   "rising-star-engine/tests/test_connectors.py::TestYFinanceDataConnector::test_rate_limit_backoff_and_failure",
   "rising-star-engine/tests/test_connectors.py::TestYFinanceDataConnector::test_transient_error_retry_success",
+  "rising-star-engine/tests/test_engines.py::TestIndicatorEngine::test_calculate_indicators_payload",
+  "rising-star-engine/tests/test_engines.py::TestIndicatorEngine::test_check_reversal_stabilization",
+  "rising-star-engine/tests/test_engines.py::TestIndicatorEngine::test_compute_atr_accuracy",
+  "rising-star-engine/tests/test_engines.py::TestIndicatorEngine::test_distance_from_high_calculation",
   "rising-star-engine/tests/test_engines.py::TestUniverseScanner::test_allowed_sectors_whitelist",
   "rising-star-engine/tests/test_engines.py::TestUniverseScanner::test_composite_universe_deduplication",
   "rising-star-engine/tests/test_engines.py::TestUniverseScanner::test_filter_universe_criteria_pipeline",
   "rising-star-engine/tests/test_engines.py::TestUniverseScanner::test_get_index_constituents",
-  "rising-star-engine/tests/test_engines.py::TestUniverseScanner::test_scan_and_generate_payload_prd_contract"
+  "rising-star-engine/tests/test_engines.py::TestUniverseScanner::test_scan_and_generate_payload_prd_contract",
+  "rising-star-engine/tests/test_engines.py::TestValueDisconnectEngine::test_evaluate_candidate_end_to_end_prd_contract",
+  "rising-star-engine/tests/test_engines.py::TestValueDisconnectEngine::test_fundamental_guard_fails_on_excessive_debt_to_equity",
+  "rising-star-engine/tests/test_engines.py::TestValueDisconnectEngine::test_fundamental_guard_fails_on_negative_free_cash_flow",
+  "rising-star-engine/tests/test_engines.py::TestValueDisconnectEngine::test_fundamental_guard_fails_on_negative_revenue_growth",
+  "rising-star-engine/tests/test_engines.py::TestValueDisconnectEngine::test_fundamental_guard_qualified_pass",
+  "rising-star-engine/tests/test_engines.py::TestValueDisconnectEngine::test_screen_candidates_batch_filtration",
+  "rising-star-engine/tests/test_engines.py::TestValueDisconnectEngine::test_technical_retracement_gate_pass",
+  "rising-star-engine/tests/test_engines.py::TestValueDisconnectEngine::test_technical_retracement_gate_too_deep_structural_break",
+  "rising-star-engine/tests/test_engines.py::TestValueDisconnectEngine::test_technical_retracement_gate_too_shallow"
 ]
