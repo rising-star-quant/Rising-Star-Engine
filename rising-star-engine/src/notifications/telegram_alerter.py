@@ -1,19 +1,22 @@
 """
-Rising Star Trend Engine v2.0 - Telegram Alert & Notification Engine (Module 04 / Module 08)
-Asynchronous, resilient alerting pipeline dispatching quantitative signals, risk parameters,
+Rising Star Trend Engine v2.0 - Telegram Alert & Notification Engine (Module 04)
+Asynchronous, hardened alerting pipeline dispatching quantitative signals, risk parameters,
 and AI Skeptic adversarial audits to Telegram channels via the Telegram Bot API.
+Features robust MarkdownV2 & HTML formatting, SecretStr token masking, and resilient error handling.
 """
 
 import asyncio
 from datetime import datetime, timezone
 import html
 import logging
+import re
 from typing import Any, Dict, List, Literal, Optional, Union
 
 import httpx
 from pydantic import BaseModel, Field
 
 from src.config import Settings, get_settings
+from src.notifications.config import TelegramSettings, get_telegram_settings
 
 logger = logging.getLogger("rising_star.notifications")
 
@@ -95,7 +98,7 @@ class RiskWarningAlertPayload(BaseModel):
     ticker: Optional[str] = Field(default=None, description="Impacted ticker symbol if applicable")
     sector: Optional[str] = Field(default=None, description="Impacted sector if applicable")
     details: str = Field(..., description="Detailed description of risk condition")
-    action_taken: str = Field(..., description="System action taken (e.g. REJECTED, LIQUIDATED, RAT CHETED)")
+    action_taken: str = Field(..., description="System action taken (e.g. REJECTED, LIQUIDATED, RATCHETED)")
     current_metrics: Optional[Dict[str, Any]] = Field(default=None, description="Supporting numeric metrics")
     timestamp: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(),
@@ -120,42 +123,133 @@ class TelegramMessageResponse(BaseModel):
 
 
 # =====================================================================
-# MESSAGE FORMATTERS
+# MESSAGE FORMATTERS (MARKDOWN V2 & HTML)
 # =====================================================================
 
 class TelegramMessageBuilder:
     """
-    Transforms structured quantitative schemas into formatted HTML messages
+    Transforms structured quantitative schemas into formatted MarkdownV2 or HTML messages
     optimized for mobile Telegram reading.
     """
 
-    @staticmethod
-    def _escape(text: Optional[str]) -> str:
+    # Characters that MUST be escaped in Telegram MarkdownV2 plain text:
+    # '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'
+    _MARKDOWN_V2_ESCAPE_PATTERN = re.compile(r"([_*\[\]()~`>#+\-=|{}.!])")
+
+    @classmethod
+    def escape_markdown_v2(cls, text: Optional[Any]) -> str:
+        """Escapes reserved characters for Telegram MarkdownV2."""
+        if text is None:
+            return ""
+        s = str(text)
+        return cls._MARKDOWN_V2_ESCAPE_PATTERN.sub(r"\\\1", s)
+
+    @classmethod
+    def escape_html(cls, text: Optional[Any]) -> str:
         """HTML escapes dynamic strings to prevent parse failures."""
         if text is None:
             return ""
         return html.escape(str(text))
 
+    # --- MARKDOWN V2 FORMATTERS ---
+
     @classmethod
-    def build_trade_alert(cls, payload: TradeAlertPayload) -> str:
-        """Formats a high-conviction trade alert into Telegram HTML."""
+    def build_trade_alert_markdown(cls, payload: TradeAlertPayload) -> str:
+        """Formats a high-conviction trade alert into Telegram MarkdownV2."""
+        esc = cls.escape_markdown_v2
+
         lines = [
-            f"<b>{cls._escape(payload.title)}: {cls._escape(payload.ticker)}</b>",
+            f"*{esc(payload.title)}: {esc(payload.ticker)}*",
             "━━━━━━━━━━━━━━━━━━━━━━",
         ]
 
         if payload.company_name:
-            lines.append(f"🏢 <b>Company:</b> {cls._escape(payload.company_name)}")
+            lines.append(f"🏢 *Company:* {esc(payload.company_name)}")
 
         retrace_str = (
             f"{payload.distance_from_52w_high_pct:.1%}"
             if payload.distance_from_52w_high_pct is not None
             else "N/A"
         )
-        lines.append(f"🌐 <b>Sector:</b> {cls._escape(payload.sector)} | <b>52W Pullback:</b> {retrace_str}")
+        lines.append(f"🌐 *Sector:* {esc(payload.sector)} \\| *52W Pullback:* {esc(retrace_str)}")
         lines.append("")
 
-        # Price Levels
+        stop_dist_pct = (
+            f"(-{payload.stop_distance_pct:.1%})"
+            if payload.stop_distance_pct is not None
+            else f"(-{((payload.current_price - payload.stop_loss) / payload.current_price):.1%})"
+        )
+        target_dist_pct = f"(+{((payload.target_price - payload.current_price) / payload.current_price):.1%})"
+
+        lines.append(f"💵 *Entry Price:* `${payload.current_price:.2f}`")
+        lines.append(f"🛑 *Stop\\-Loss:* `${payload.stop_loss:.2f}` {esc(stop_dist_pct)}")
+        lines.append(f"🎯 *Take\\-Profit:* `${payload.target_price:.2f}` {esc(target_dist_pct)}")
+        lines.append(f"⚖️ *Risk/Reward:* `{payload.risk_reward_ratio:.2f}:1`")
+
+        if payload.atr_14:
+            lines.append(f"📐 *ATR \\(14\\):* `${payload.atr_14:.2f}`")
+
+        # Position Sizing
+        if payload.recommended_shares is not None and payload.recommended_shares > 0:
+            lines.append("")
+            lines.append("💼 *Position Sizing Plan:*")
+            lines.append(f"• *Recommended Shares:* `{payload.recommended_shares:,}`")
+            if payload.allocated_capital is not None:
+                cap_pct_str = (
+                    f" \\({esc(f'{payload.capital_allocation_pct:.1%}')} equity\\)"
+                    if payload.capital_allocation_pct is not None
+                    else ""
+                )
+                lines.append(f"• *Capital Allocated:* `${payload.allocated_capital:,.2f}`{cap_pct_str}")
+            if payload.risk_amount is not None:
+                lines.append(f"• *Max Risk Budget:* `${payload.risk_amount:,.2f}`")
+
+        # AI Skeptic Verification
+        if payload.ai_skeptic_verdict or payload.devils_advocate_argument:
+            lines.append("")
+            verdict = payload.ai_skeptic_verdict or "FLAGGED"
+            verdict_icon = "✅" if verdict in ("APPROVED", "GOLDEN_OPPORTUNITY") else "⚠️"
+            score_str = f"{payload.skepticism_score:.2f}" if payload.skepticism_score is not None else "N/A"
+            index_str = f" \\({payload.skepticism_index}/10\\)" if payload.skepticism_index is not None else ""
+            lines.append(
+                f"{verdict_icon} *AI Skeptic Audit:* `{esc(verdict)}` "
+                f"\\(Doubt: {esc(score_str)}{index_str}\\)"
+            )
+
+            if payload.devils_advocate_argument:
+                lines.append(f"• *Devil's Advocate:* _{esc(payload.devils_advocate_argument)}_")
+            if payload.recovery_catalyst:
+                lines.append(f"• *Recovery Catalyst:* _{esc(payload.recovery_catalyst)}_")
+            for just in payload.justifications[:2]:
+                lines.append(f"• {esc(just)}")
+
+        lines.append("")
+        lines.append(f"⏰ _{esc(payload.timestamp[:19])} UTC_")
+        return "\n".join(lines)
+
+    # --- HTML FORMATTERS ---
+
+    @classmethod
+    def build_trade_alert_html(cls, payload: TradeAlertPayload) -> str:
+        """Formats a high-conviction trade alert into Telegram HTML."""
+        esc = cls.escape_html
+
+        lines = [
+            f"<b>{esc(payload.title)}: {esc(payload.ticker)}</b>",
+            "━━━━━━━━━━━━━━━━━━━━━━",
+        ]
+
+        if payload.company_name:
+            lines.append(f"🏢 <b>Company:</b> {esc(payload.company_name)}")
+
+        retrace_str = (
+            f"{payload.distance_from_52w_high_pct:.1%}"
+            if payload.distance_from_52w_high_pct is not None
+            else "N/A"
+        )
+        lines.append(f"🌐 <b>Sector:</b> {esc(payload.sector)} | <b>52W Pullback:</b> {retrace_str}")
+        lines.append("")
+
         stop_dist_pct = (
             f"(-{payload.stop_distance_pct:.1%})"
             if payload.stop_distance_pct is not None
@@ -171,7 +265,6 @@ class TelegramMessageBuilder:
         if payload.atr_14:
             lines.append(f"📐 <b>ATR (14):</b> <code>${payload.atr_14:.2f}</code>")
 
-        # Position Sizing
         if payload.recommended_shares is not None and payload.recommended_shares > 0:
             lines.append("")
             lines.append("💼 <b>Position Sizing Plan:</b>")
@@ -186,8 +279,6 @@ class TelegramMessageBuilder:
             if payload.risk_amount is not None:
                 lines.append(f"• <b>Max Risk Budget:</b> <code>${payload.risk_amount:,.2f}</code>")
 
-        # AI Skeptic Audit
-        # AI Skeptic Audit
         if payload.ai_skeptic_verdict or payload.devils_advocate_argument:
             lines.append("")
             verdict = payload.ai_skeptic_verdict or "FLAGGED"
@@ -195,28 +286,36 @@ class TelegramMessageBuilder:
             score_str = f"{payload.skepticism_score:.2f}" if payload.skepticism_score is not None else "N/A"
             index_str = f" ({payload.skepticism_index}/10)" if payload.skepticism_index is not None else ""
             lines.append(
-                f"{verdict_icon} <b>AI Skeptic Audit:</b> <code>{cls._escape(verdict)}</code> "
+                f"{verdict_icon} <b>AI Skeptic Audit:</b> <code>{esc(verdict)}</code> "
                 f"(Doubt: {score_str}{index_str})"
             )
 
             if payload.devils_advocate_argument:
-                lines.append(f"• <b>Devil's Advocate:</b> <i>{cls._escape(payload.devils_advocate_argument)}</i>")
+                lines.append(f"• <b>Devil's Advocate:</b> <i>{esc(payload.devils_advocate_argument)}</i>")
             if payload.recovery_catalyst:
-                lines.append(f"• <b>Recovery Catalyst:</b> <i>{cls._escape(payload.recovery_catalyst)}</i>")
+                lines.append(f"• <b>Recovery Catalyst:</b> <i>{esc(payload.recovery_catalyst)}</i>")
             for just in payload.justifications[:2]:
-                lines.append(f"• {cls._escape(just)}")
+                lines.append(f"• {esc(just)}")
 
         lines.append("")
-        lines.append(f"⏰ <i>{cls._escape(payload.timestamp[:19])} UTC</i>")
+        lines.append(f"⏰ <i>{esc(payload.timestamp[:19])} UTC</i>")
         return "\n".join(lines)
+
+    @classmethod
+    def build_trade_alert(cls, payload: TradeAlertPayload, parse_mode: str = "HTML") -> str:
+        """Dispatches to either MarkdownV2 or HTML builder based on parse_mode."""
+        if parse_mode.lower() in ("markdown", "markdownv2"):
+            return cls.build_trade_alert_markdown(payload)
+        return cls.build_trade_alert_html(payload)
 
     @classmethod
     def build_earnings_wreck_alert(cls, payload: EarningsWreckAlertPayload) -> str:
         """Formats an earnings overreaction alert into Telegram HTML."""
+        esc = cls.escape_html
         lines = [
-            f"<b>{cls._escape(payload.title)}: {cls._escape(payload.ticker)}</b>",
+            f"<b>{esc(payload.title)}: {esc(payload.ticker)}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━",
-            f"📅 <b>Earnings Date:</b> {cls._escape(payload.earnings_date)}",
+            f"📅 <b>Earnings Date:</b> {esc(payload.earnings_date)}",
         ]
 
         if payload.current_price:
@@ -238,38 +337,39 @@ class TelegramMessageBuilder:
 
         if payload.ai_skeptic_commentary:
             lines.append("")
-            lines.append(f"🧠 <b>AI Forensic Sanity Check:</b>\n<i>{cls._escape(payload.ai_skeptic_commentary)}</i>")
+            lines.append(f"🧠 <b>AI Forensic Sanity Check:</b>\n<i>{esc(payload.ai_skeptic_commentary)}</i>")
 
         lines.append("")
-        lines.append(f"⏰ <i>{cls._escape(payload.timestamp[:19])} UTC</i>")
+        lines.append(f"⏰ <i>{esc(payload.timestamp[:19])} UTC</i>")
         return "\n".join(lines)
 
     @classmethod
     def build_risk_warning_alert(cls, payload: RiskWarningAlertPayload) -> str:
         """Formats a portfolio risk limit warning into Telegram HTML."""
+        esc = cls.escape_html
         lines = [
-            f"<b>{cls._escape(payload.title)}</b>",
+            f"<b>{esc(payload.title)}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━",
-            f"🚨 <b>Warning Type:</b> <code>{cls._escape(payload.warning_type)}</code>",
+            f"🚨 <b>Warning Type:</b> <code>{esc(payload.warning_type)}</code>",
         ]
 
         if payload.ticker:
-            lines.append(f"🏷️ <b>Ticker:</b> <code>{cls._escape(payload.ticker)}</code>")
+            lines.append(f"🏷️ <b>Ticker:</b> <code>{esc(payload.ticker)}</code>")
         if payload.sector:
-            lines.append(f"🌐 <b>Sector:</b> <code>{cls._escape(payload.sector)}</code>")
+            lines.append(f"🌐 <b>Sector:</b> <code>{esc(payload.sector)}</code>")
 
         lines.append("")
-        lines.append(f"📝 <b>Condition:</b> {cls._escape(payload.details)}")
-        lines.append(f"🛡️ <b>Enforced Action:</b> <b>{cls._escape(payload.action_taken)}</b>")
+        lines.append(f"📝 <b>Condition:</b> {esc(payload.details)}")
+        lines.append(f"🛡️ <b>Enforced Action:</b> <b>{esc(payload.action_taken)}</b>")
 
         if payload.current_metrics:
             lines.append("")
             lines.append("📊 <b>Metrics Snapshot:</b>")
             for k, v in payload.current_metrics.items():
-                lines.append(f"• {cls._escape(k)}: <code>{cls._escape(v)}</code>")
+                lines.append(f"• {esc(k)}: <code>{esc(v)}</code>")
 
         lines.append("")
-        lines.append(f"⏰ <i>{cls._escape(payload.timestamp[:19])} UTC</i>")
+        lines.append(f"⏰ <i>{esc(payload.timestamp[:19])} UTC</i>")
         return "\n".join(lines)
 
 
@@ -281,8 +381,9 @@ class TelegramAlerter:
     """
     Production-grade asynchronous Telegram Bot API dispatcher.
     Features:
-    - HTML formatted payload parsing
+    - HTML and MarkdownV2 formatted payload parsing
     - Non-blocking async HTTP client via httpx
+    - Sensitive token masking in all log output
     - Resilient error handling (rate limits HTTP 429, invalid token, network timeouts)
     - Safe offline/mock fallback during testing or missing configuration
     """
@@ -293,20 +394,51 @@ class TelegramAlerter:
         self,
         token: Optional[str] = None,
         chat_id: Optional[str] = None,
-        settings: Optional[Settings] = None,
+        settings: Optional[Union[TelegramSettings, Settings]] = None,
         client: Optional[httpx.AsyncClient] = None,
         force_offline: bool = False,
     ):
-        self.settings = settings or get_settings()
-        self.token = token or self.settings.telegram_bot_token
-        self.chat_id = chat_id or self.settings.telegram_chat_id
+        # Support either TelegramSettings or general application Settings
+        if isinstance(settings, TelegramSettings):
+            self.telegram_settings = settings
+        else:
+            self.telegram_settings = get_telegram_settings()
+
+        # Resolve token securely: explicit arg > telegram_settings > general settings
+        resolved_token = token
+        if not resolved_token:
+            resolved_token = self.telegram_settings.get_token_str()
+        if not resolved_token and settings and hasattr(settings, "telegram_bot_token"):
+            resolved_token = getattr(settings, "telegram_bot_token")
+
+        self.token: Optional[str] = resolved_token
+
+        # Resolve chat ID
+        resolved_chat = chat_id
+        if not resolved_chat:
+            resolved_chat = self.telegram_settings.telegram_chat_id
+        if not resolved_chat and settings and hasattr(settings, "telegram_chat_id"):
+            resolved_chat = getattr(settings, "telegram_chat_id")
+
+        self.chat_id: Optional[str] = resolved_chat
+
         self._custom_client = client
         self.force_offline = force_offline
+        self.timeout = self.telegram_settings.request_timeout
 
     @property
     def is_configured(self) -> bool:
         """True if both token and chat_id are present and not forced offline."""
         return bool(self.token and self.chat_id and not self.force_offline)
+
+    @property
+    def masked_token(self) -> str:
+        """Returns safe masked token representation for logs."""
+        if not self.token:
+            return "<UNSET>"
+        if len(self.token) <= 8:
+            return "***"
+        return f"{self.token[:4]}...{self.token[-4:]}"
 
     async def send_message(
         self,
@@ -358,7 +490,7 @@ class TelegramAlerter:
             "disable_web_page_preview": disable_web_page_preview,
         }
 
-        timeout = httpx.Timeout(self.settings.request_timeout)
+        timeout = httpx.Timeout(self.timeout)
         client = self._custom_client or httpx.AsyncClient(timeout=timeout)
         close_client = self._custom_client is None
 
@@ -392,7 +524,8 @@ class TelegramAlerter:
                             max_retries + 1,
                         )
                         if attempt < max_retries:
-                            await asyncio.sleep(min(retry_after, 5.0))
+                            wait_time = min(float(retry_after), self.telegram_settings.rate_limit_max_wait_seconds)
+                            await asyncio.sleep(wait_time)
                             continue
                         return TelegramMessageResponse(
                             success=False,
@@ -407,10 +540,10 @@ class TelegramAlerter:
                         data = response.json() if "application/json" in response.headers.get("Content-Type", "") else {}
                         err_desc = data.get("description", response.text)
                         logger.error(
-                            "Telegram API client error %s: %s (Payload length: %s)",
+                            "Telegram API client error %s (token: %s): %s",
                             status_code,
+                            self.masked_token,
                             err_desc,
-                            len(text),
                         )
                         return TelegramMessageResponse(
                             success=False,
@@ -428,7 +561,7 @@ class TelegramAlerter:
                             max_retries + 1,
                         )
                         if attempt < max_retries:
-                            await asyncio.sleep(1.0 * (attempt + 1))
+                            await asyncio.sleep(self.telegram_settings.backoff_factor * (attempt + 1))
                             continue
                         return TelegramMessageResponse(
                             success=False,
@@ -472,10 +605,12 @@ class TelegramAlerter:
         self,
         payload: TradeAlertPayload,
         chat_id: Optional[str] = None,
+        parse_mode: Optional[str] = None,
     ) -> TelegramMessageResponse:
         """Formats and dispatches a high-conviction trade setup alert."""
-        text = TelegramMessageBuilder.build_trade_alert(payload)
-        return await self.send_message(text=text, chat_id=chat_id)
+        mode = parse_mode or self.telegram_settings.default_parse_mode
+        text = TelegramMessageBuilder.build_trade_alert(payload, parse_mode=mode)
+        return await self.send_message(text=text, chat_id=chat_id, parse_mode=mode)
 
     async def dispatch_earnings_wreck_alert(
         self,
@@ -484,7 +619,7 @@ class TelegramAlerter:
     ) -> TelegramMessageResponse:
         """Formats and dispatches a post-earnings overreaction alert."""
         text = TelegramMessageBuilder.build_earnings_wreck_alert(payload)
-        return await self.send_message(text=text, chat_id=chat_id)
+        return await self.send_message(text=text, chat_id=chat_id, parse_mode="HTML")
 
     async def dispatch_risk_warning(
         self,
@@ -493,7 +628,7 @@ class TelegramAlerter:
     ) -> TelegramMessageResponse:
         """Formats and dispatches a portfolio risk limit warning."""
         text = TelegramMessageBuilder.build_risk_warning_alert(payload)
-        return await self.send_message(text=text, chat_id=chat_id)
+        return await self.send_message(text=text, chat_id=chat_id, parse_mode="HTML")
 
     async def dispatch_batch(
         self,
@@ -530,6 +665,7 @@ class TelegramAlerter:
         self,
         payload: TradeAlertPayload,
         chat_id: Optional[str] = None,
+        parse_mode: Optional[str] = None,
     ) -> TelegramMessageResponse:
         """Synchronous wrapper for dispatch_trade_alert."""
         try:
@@ -539,17 +675,17 @@ class TelegramAlerter:
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     return executor.submit(
                         asyncio.run,
-                        self.dispatch_trade_alert(payload, chat_id)
+                        self.dispatch_trade_alert(payload, chat_id, parse_mode)
                     ).result()
-            return loop.run_until_complete(self.dispatch_trade_alert(payload, chat_id))
+            return loop.run_until_complete(self.dispatch_trade_alert(payload, chat_id, parse_mode))
         except RuntimeError:
-            return asyncio.run(self.dispatch_trade_alert(payload, chat_id))
+            return asyncio.run(self.dispatch_trade_alert(payload, chat_id, parse_mode))
 
 
 def get_telegram_alerter(
     token: Optional[str] = None,
     chat_id: Optional[str] = None,
-    settings: Optional[Settings] = None,
+    settings: Optional[Union[TelegramSettings, Settings]] = None,
     force_offline: bool = False,
 ) -> TelegramAlerter:
     """Factory helper returning TelegramAlerter instance."""

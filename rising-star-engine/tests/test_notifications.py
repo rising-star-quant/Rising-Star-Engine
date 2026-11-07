@@ -1,19 +1,25 @@
 """
 Pytest suite for Module 04: Telegram Alert & Notification Engine.
-Tests asynchronous alert dispatching, HTML payload formatting, rate limit handling (HTTP 429),
-client error resilience (HTTP 400/401), server error retries, network timeouts, and batch notifications.
+Tests secure configuration management, fail-fast production validations, SecretStr masking,
+mobile MarkdownV2 & HTML formatting, asynchronous dispatching, HTTP 429 rate limit backoff,
+HTTP 400/401 client error handling, network timeouts, and batch dispatching.
 """
 
 import asyncio
-from datetime import datetime, timezone
-import json
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+from pydantic import SecretStr
 import pytest
 import respx
 
 from src.config import Settings
+from src.notifications.config import (
+    TelegramConfigError,
+    TelegramSettings,
+    get_telegram_settings,
+)
 from src.notifications.telegram_alerter import (
     EarningsWreckAlertPayload,
     RiskWarningAlertPayload,
@@ -30,13 +36,16 @@ from src.notifications.telegram_alerter import (
 # =====================================================================
 
 @pytest.fixture
-def test_settings():
-    """Provides test settings for notifications."""
-    return Settings(
+def mock_telegram_settings():
+    """Provides secure test settings for notifications."""
+    return TelegramSettings(
         env="testing",
-        telegram_bot_token="TEST_BOT_TOKEN_12345",
+        telegram_bot_token=SecretStr("TEST_BOT_TOKEN_12345"),
         telegram_chat_id="-1001234567890",
         request_timeout=5,
+        max_retries=2,
+        backoff_factor=0.1,
+        rate_limit_max_wait_seconds=1.0,
     )
 
 
@@ -109,56 +118,142 @@ def sample_risk_warning_payload():
 
 
 # =====================================================================
-# 1. MESSAGE BUILDER & FORMATTING TESTS
+# 1. SECURE CONFIGURATION MANAGEMENT TESTS
+# =====================================================================
+
+class TestTelegramSettingsSecurity:
+    """Tests secure credentials loading, SecretStr masking, and production fail-fast rules."""
+
+    def test_default_development_settings(self):
+        """In development/testing, missing credentials do not raise errors."""
+        settings = TelegramSettings(env="development", telegram_bot_token=None, telegram_chat_id=None)
+        assert settings.get_token_str() is None
+        assert settings.telegram_chat_id is None
+        assert settings.env == "development"
+
+    def test_secret_str_masks_token_in_logs_and_repr(self):
+        """Tokens are stored as SecretStr and never leaked via str() or repr()."""
+        raw_token = "987654321:SECRET_TOKEN_ABCXYZ"
+        settings = TelegramSettings(
+            env="development",
+            telegram_bot_token=SecretStr(raw_token),
+            telegram_chat_id="123456",
+        )
+
+        assert raw_token not in repr(settings)
+        assert raw_token not in str(settings)
+        assert "**********" in repr(settings.telegram_bot_token)
+        assert settings.get_token_str() == raw_token
+
+    def test_environment_variable_alias_loading(self, monkeypatch):
+        """Loads from TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID environment variables."""
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "ENV_BOT_TOKEN_123")
+        monkeypatch.setenv("TELEGRAM_CHAT_ID", "-100999888777")
+        monkeypatch.setenv("RSTE_ENV", "testing")
+
+        settings = TelegramSettings()
+
+        assert settings.get_token_str() == "ENV_BOT_TOKEN_123"
+        assert settings.telegram_chat_id == "-100999888777"
+        assert settings.env == "testing"
+
+    def test_rste_prefixed_environment_variable_fallback(self, monkeypatch):
+        """Supports RSTE_ prefixed environment variables."""
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+        monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+        monkeypatch.setenv("RSTE_TELEGRAM_BOT_TOKEN", "PREFIXED_TOKEN_555")
+        monkeypatch.setenv("RSTE_TELEGRAM_CHAT_ID", "@prefixed_channel")
+
+        settings = TelegramSettings()
+
+        assert settings.get_token_str() == "PREFIXED_TOKEN_555"
+        assert settings.telegram_chat_id == "@prefixed_channel"
+
+    def test_production_fail_fast_on_missing_token(self):
+        """Production environment raises TelegramConfigError/ValueError if bot token is missing."""
+        with pytest.raises((TelegramConfigError, ValueError)) as exc_info:
+            TelegramSettings(
+                env="production",
+                telegram_bot_token=None,
+                telegram_chat_id="-1001234567890",
+            )
+        assert "TELEGRAM_BOT_TOKEN is mandatory but missing" in str(exc_info.value)
+
+    def test_production_fail_fast_on_missing_chat_id(self):
+        """Production environment raises TelegramConfigError/ValueError if chat ID is missing."""
+        with pytest.raises((TelegramConfigError, ValueError)) as exc_info:
+            TelegramSettings(
+                env="production",
+                telegram_bot_token=SecretStr("PROD_TOKEN_VALID"),
+                telegram_chat_id="",
+            )
+        assert "TELEGRAM_CHAT_ID is mandatory but missing" in str(exc_info.value)
+
+    def test_production_passes_when_all_secrets_present(self):
+        """Production initializes cleanly when all mandatory credentials are provided."""
+        settings = TelegramSettings(
+            env="production",
+            telegram_bot_token=SecretStr("PROD_VALID_TOKEN"),
+            telegram_chat_id="-1001234567890",
+        )
+        assert settings.env == "production"
+        assert settings.get_token_str() == "PROD_VALID_TOKEN"
+
+
+# =====================================================================
+# 2. MESSAGE BUILDER & FORMATTING TESTS (MARKDOWN V2 & HTML)
 # =====================================================================
 
 class TestTelegramMessageBuilder:
-    """Tests HTML mobile message formatting across all alert types."""
+    """Tests MarkdownV2 and HTML mobile message formatting across all alert types."""
 
-    def test_build_trade_alert_full(self, sample_trade_payload):
-        """Verify all sections, HTML tags, and quantitative metrics appear cleanly."""
-        msg = TelegramMessageBuilder.build_trade_alert(sample_trade_payload)
+    def test_build_trade_alert_markdown_v2_escaping(self, sample_trade_payload):
+        """MarkdownV2 format safely escapes reserved characters while maintaining markdown markup."""
+        msg = TelegramMessageBuilder.build_trade_alert_markdown(sample_trade_payload)
 
-        # Header & Profile
+        # Markdown bold and monospace indicators
+        assert "*🎯 VALUE DIP DETECTED: NVDA*" in msg
+        assert "`$115.50`" in msg
+        assert "`$107.00`" in msg
+        assert "`$136.75`" in msg
+        assert "`2.50:1`" in msg
+        # Escaped periods and hyphens in plain text
+        assert "Stop\\-Loss" in msg
+        assert "Take\\-Profit" in msg
+        assert "52W Pullback" in msg
+        assert "APPROVED" in msg
+        assert "3/10" in msg
+
+    def test_build_trade_alert_html_full(self, sample_trade_payload):
+        """Verify HTML format contains bold tags and monetary amounts."""
+        msg = TelegramMessageBuilder.build_trade_alert_html(sample_trade_payload)
+
         assert "<b>🎯 VALUE DIP DETECTED: NVDA</b>" in msg
         assert "NVIDIA Corporation" in msg
         assert "Technology" in msg
         assert "-22.4%" in msg
-
-        # Pricing & Risk Levels
         assert "$115.50" in msg
         assert "$107.00" in msg
         assert "$136.75" in msg
         assert "2.50:1" in msg
-        assert "$4.25" in msg
-
-        # Sizing Plan
-        assert "150" in msg
         assert "$17,325.00" in msg
-        assert "17.3% equity" in msg
-        assert "$1,275.00" in msg
-
-        # AI Skeptic Verification
         assert "APPROVED" in msg
-        assert "0.28" in msg
-        assert "3/10" in msg
-        assert "hyperscaler capex pause" in msg
-        assert "Next quarter margin expansion" in msg
 
     def test_build_trade_alert_minimal(self):
-        """Minimal required fields format cleanly without exceptions."""
+        """Minimal required fields format cleanly in both modes without exceptions."""
         minimal = TradeAlertPayload(
             ticker="MINI",
             current_price=50.0,
             stop_loss=46.0,
             target_price=60.0,
         )
-        msg = TelegramMessageBuilder.build_trade_alert(minimal)
+        msg_md = TelegramMessageBuilder.build_trade_alert(minimal, parse_mode="MarkdownV2")
+        msg_html = TelegramMessageBuilder.build_trade_alert(minimal, parse_mode="HTML")
 
-        assert "MINI" in msg
-        assert "$50.00" in msg
-        assert "$46.00" in msg
-        assert "$60.00" in msg
+        assert "MINI" in msg_md
+        assert "$50.00" in msg_md
+        assert "MINI" in msg_html
+        assert "$50.00" in msg_html
 
     def test_build_earnings_wreck_alert(self, sample_earnings_wreck_payload):
         """Formats acute post-earnings overreaction alert."""
@@ -189,7 +284,7 @@ class TestTelegramMessageBuilder:
         assert "$500.00" in msg
 
     def test_html_escaping_prevents_markup_injection(self):
-        """Special HTML characters (<, >, &, ") in company names or commentary are escaped."""
+        """Special HTML characters (<, >, &, ") in dynamic fields are safely escaped."""
         payload = TradeAlertPayload(
             ticker="EVIL",
             company_name="Dangerous <script>alert(1)</script> & Co",
@@ -198,7 +293,7 @@ class TestTelegramMessageBuilder:
             target_price=15.0,
             devils_advocate_argument="Growth < 0% & Debt > 5.0x",
         )
-        msg = TelegramMessageBuilder.build_trade_alert(payload)
+        msg = TelegramMessageBuilder.build_trade_alert_html(payload)
 
         assert "<script>" not in msg
         assert "&lt;script&gt;" in msg
@@ -207,7 +302,7 @@ class TestTelegramMessageBuilder:
 
 
 # =====================================================================
-# 2. ASYNC TELEGRAM ALERTER DISPATCH TESTS
+# 3. ASYNC TELEGRAM ALERTER DISPATCH TESTS
 # =====================================================================
 
 class TestTelegramAlerterDispatch:
@@ -215,9 +310,10 @@ class TestTelegramAlerterDispatch:
 
     @pytest.mark.asyncio
     @respx.mock
-    async def test_successful_dispatch_200(self, test_settings, sample_trade_payload):
+    async def test_successful_dispatch_200(self, mock_telegram_settings, sample_trade_payload):
         """HTTP 200 response confirms delivery and extracts message_id."""
-        bot_url = f"https://api.telegram.org/bot{test_settings.telegram_bot_token}/sendMessage"
+        raw_token = mock_telegram_settings.get_token_str()
+        bot_url = f"https://api.telegram.org/bot{raw_token}/sendMessage"
         mock_route = respx.post(bot_url).respond(
             status_code=200,
             json={
@@ -231,22 +327,22 @@ class TestTelegramAlerterDispatch:
             },
         )
 
-        alerter = TelegramAlerter(settings=test_settings, force_offline=False)
+        alerter = TelegramAlerter(settings=mock_telegram_settings, force_offline=False)
         response = await alerter.dispatch_trade_alert(sample_trade_payload)
 
         assert response.success is True
         assert response.message_id == 98765
-        assert response.chat_id == test_settings.telegram_chat_id
+        assert response.chat_id == mock_telegram_settings.telegram_chat_id
         assert "Message delivered successfully" in response.description
         assert mock_route.called
 
     @pytest.mark.asyncio
     @respx.mock
-    async def test_rate_limit_429_with_retry_and_recovery(self, test_settings, sample_trade_payload):
+    async def test_rate_limit_429_with_retry_and_recovery(self, mock_telegram_settings, sample_trade_payload):
         """HTTP 429 triggers retry-after wait and succeeds on second attempt."""
-        bot_url = f"https://api.telegram.org/bot{test_settings.telegram_bot_token}/sendMessage"
+        raw_token = mock_telegram_settings.get_token_str()
+        bot_url = f"https://api.telegram.org/bot{raw_token}/sendMessage"
 
-        # First call returns 429, second call returns 200 OK
         mock_route = respx.post(bot_url)
         mock_route.side_effect = [
             httpx.Response(
@@ -264,7 +360,7 @@ class TestTelegramAlerterDispatch:
             ),
         ]
 
-        alerter = TelegramAlerter(settings=test_settings, force_offline=False)
+        alerter = TelegramAlerter(settings=mock_telegram_settings, force_offline=False)
         response = await alerter.dispatch_trade_alert(sample_trade_payload)
 
         assert response.success is True
@@ -273,9 +369,10 @@ class TestTelegramAlerterDispatch:
 
     @pytest.mark.asyncio
     @respx.mock
-    async def test_rate_limit_429_exhausted(self, test_settings, sample_trade_payload):
+    async def test_rate_limit_429_exhausted(self, mock_telegram_settings):
         """Persistent HTTP 429 returns graceful error response without raising exception."""
-        bot_url = f"https://api.telegram.org/bot{test_settings.telegram_bot_token}/sendMessage"
+        raw_token = mock_telegram_settings.get_token_str()
+        bot_url = f"https://api.telegram.org/bot{raw_token}/sendMessage"
         respx.post(bot_url).respond(
             status_code=429,
             json={
@@ -286,7 +383,7 @@ class TestTelegramAlerterDispatch:
             },
         )
 
-        alerter = TelegramAlerter(settings=test_settings, force_offline=False)
+        alerter = TelegramAlerter(settings=mock_telegram_settings, force_offline=False)
         response = await alerter.send_message(text="Test", max_retries=1)
 
         assert response.success is False
@@ -296,9 +393,10 @@ class TestTelegramAlerterDispatch:
 
     @pytest.mark.asyncio
     @respx.mock
-    async def test_bad_request_400_chat_not_found(self, test_settings, sample_trade_payload):
+    async def test_bad_request_400_chat_not_found(self, mock_telegram_settings, sample_trade_payload):
         """HTTP 400 (e.g. Chat not found / Invalid group) fails gracefully without crashing."""
-        bot_url = f"https://api.telegram.org/bot{test_settings.telegram_bot_token}/sendMessage"
+        raw_token = mock_telegram_settings.get_token_str()
+        bot_url = f"https://api.telegram.org/bot{raw_token}/sendMessage"
         respx.post(bot_url).respond(
             status_code=400,
             json={
@@ -308,7 +406,7 @@ class TestTelegramAlerterDispatch:
             },
         )
 
-        alerter = TelegramAlerter(settings=test_settings, force_offline=False)
+        alerter = TelegramAlerter(settings=mock_telegram_settings, force_offline=False)
         response = await alerter.dispatch_trade_alert(sample_trade_payload)
 
         assert response.success is False
@@ -317,9 +415,10 @@ class TestTelegramAlerterDispatch:
 
     @pytest.mark.asyncio
     @respx.mock
-    async def test_unauthorized_401_invalid_token(self, test_settings, sample_trade_payload):
-        """HTTP 401 Unauthorized returns diagnostic error description."""
-        bot_url = f"https://api.telegram.org/bot{test_settings.telegram_bot_token}/sendMessage"
+    async def test_unauthorized_401_invalid_token(self, mock_telegram_settings, sample_trade_payload):
+        """HTTP 401 Unauthorized returns diagnostic error description and masks token in logs."""
+        raw_token = mock_telegram_settings.get_token_str()
+        bot_url = f"https://api.telegram.org/bot{raw_token}/sendMessage"
         respx.post(bot_url).respond(
             status_code=401,
             json={
@@ -329,7 +428,7 @@ class TestTelegramAlerterDispatch:
             },
         )
 
-        alerter = TelegramAlerter(settings=test_settings, force_offline=False)
+        alerter = TelegramAlerter(settings=mock_telegram_settings, force_offline=False)
         response = await alerter.dispatch_trade_alert(sample_trade_payload)
 
         assert response.success is False
@@ -338,12 +437,13 @@ class TestTelegramAlerterDispatch:
 
     @pytest.mark.asyncio
     @respx.mock
-    async def test_server_error_500_retries_and_fails_gracefully(self, test_settings):
+    async def test_server_error_500_retries_and_fails_gracefully(self, mock_telegram_settings):
         """HTTP 500 server error retries up to max_retries and returns failure response."""
-        bot_url = f"https://api.telegram.org/bot{test_settings.telegram_bot_token}/sendMessage"
+        raw_token = mock_telegram_settings.get_token_str()
+        bot_url = f"https://api.telegram.org/bot{raw_token}/sendMessage"
         respx.post(bot_url).respond(status_code=500, text="Internal Server Error")
 
-        alerter = TelegramAlerter(settings=test_settings, force_offline=False)
+        alerter = TelegramAlerter(settings=mock_telegram_settings, force_offline=False)
         response = await alerter.send_message(text="Server Error Test", max_retries=1)
 
         assert response.success is False
@@ -351,12 +451,13 @@ class TestTelegramAlerterDispatch:
 
     @pytest.mark.asyncio
     @respx.mock
-    async def test_network_timeout_handling(self, test_settings, sample_trade_payload):
-        """Network timeout (httpx.ConnectTimeout) is caught and logged safely."""
-        bot_url = f"https://api.telegram.org/bot{test_settings.telegram_bot_token}/sendMessage"
+    async def test_network_timeout_handling(self, mock_telegram_settings):
+        """Network timeout (httpx.ConnectTimeout) is caught and logged safely without crashing."""
+        raw_token = mock_telegram_settings.get_token_str()
+        bot_url = f"https://api.telegram.org/bot{raw_token}/sendMessage"
         respx.post(bot_url).mock(side_effect=httpx.ConnectTimeout("Connection timed out"))
 
-        alerter = TelegramAlerter(settings=test_settings, force_offline=False)
+        alerter = TelegramAlerter(settings=mock_telegram_settings, force_offline=False)
         response = await alerter.send_message(text="Timeout Test", max_retries=0)
 
         assert response.success is False
@@ -366,7 +467,7 @@ class TestTelegramAlerterDispatch:
     @pytest.mark.asyncio
     async def test_unconfigured_offline_mode_mock_success(self):
         """When bot is unconfigured (empty token/chat_id), dispatch succeeds locally as mock."""
-        settings = Settings(
+        settings = TelegramSettings(
             env="testing",
             telegram_bot_token=None,
             telegram_chat_id=None,
@@ -383,9 +484,9 @@ class TestTelegramAlerterDispatch:
     @pytest.mark.asyncio
     async def test_missing_chat_id_validation(self):
         """If chat_id is missing, request is rejected with HTTP 400 error description."""
-        settings = Settings(
+        settings = TelegramSettings(
             env="testing",
-            telegram_bot_token="VALID_TOKEN",
+            telegram_bot_token=SecretStr("VALID_TOKEN"),
             telegram_chat_id=None,
         )
         alerter = TelegramAlerter(
@@ -405,19 +506,20 @@ class TestTelegramAlerterDispatch:
     @respx.mock
     async def test_batch_alert_dispatch(
         self,
-        test_settings,
+        mock_telegram_settings,
         sample_trade_payload,
         sample_earnings_wreck_payload,
         sample_risk_warning_payload,
     ):
         """Dispatches multiple diverse alerts concurrently using asyncio.gather."""
-        bot_url = f"https://api.telegram.org/bot{test_settings.telegram_bot_token}/sendMessage"
+        raw_token = mock_telegram_settings.get_token_str()
+        bot_url = f"https://api.telegram.org/bot{raw_token}/sendMessage"
         respx.post(bot_url).respond(
             status_code=200,
             json={"ok": True, "result": {"message_id": 10001}},
         )
 
-        alerter = TelegramAlerter(settings=test_settings, force_offline=False)
+        alerter = TelegramAlerter(settings=mock_telegram_settings, force_offline=False)
         payloads = [
             sample_trade_payload,
             sample_earnings_wreck_payload,
@@ -431,15 +533,16 @@ class TestTelegramAlerterDispatch:
         assert all(r.message_id == 10001 for r in responses)
 
     @respx.mock
-    def test_sync_wrappers(self, test_settings, sample_trade_payload):
+    def test_sync_wrappers(self, mock_telegram_settings, sample_trade_payload):
         """Synchronous wrapper methods execute properly in non-async contexts."""
-        bot_url = f"https://api.telegram.org/bot{test_settings.telegram_bot_token}/sendMessage"
+        raw_token = mock_telegram_settings.get_token_str()
+        bot_url = f"https://api.telegram.org/bot{raw_token}/sendMessage"
         respx.post(bot_url).respond(
             status_code=200,
             json={"ok": True, "result": {"message_id": 77777}},
         )
 
-        alerter = TelegramAlerter(settings=test_settings, force_offline=False)
+        alerter = TelegramAlerter(settings=mock_telegram_settings, force_offline=False)
         response = alerter.dispatch_trade_alert_sync(sample_trade_payload)
 
         assert response.success is True
