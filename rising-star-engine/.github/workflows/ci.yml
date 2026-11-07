@@ -1,14 +1,11 @@
 name: CI Pipeline - Rising Star v2.0
 
-on: [push, pull_request]
-
-name: Rising Star Engine CI
-
 on:
   push:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
 
 jobs:
   test:
@@ -28,19 +25,25 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
-          cache-dependency-path: 'rising-star-engine/requirements.txt'
+          cache-dependency-path: '**/requirements.txt'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r rising-star-engine/requirements.txt
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          elif [ -f "rising-star-engine/requirements.txt" ]; then
+            pip install -r rising-star-engine/requirements.txt
+          fi
 
-      - name: Run Pytest Suite with Coverage
+      - name: Run Pytest Suite
         env:
-          PYTHONPATH: rising-star-engine
           RSTE_ENV: testing
         run: |
-          python -m pytest rising-star-engine/tests/ -v --durations=10
-
-
-#TRIGGER BUILD
+          if [ -d "rising-star-engine" ]; then
+            export PYTHONPATH=rising-star-engine
+            python -m pytest rising-star-engine/tests/ -v --durations=10
+          else
+            export PYTHONPATH=.
+            python -m pytest tests/ -v --durations=10
+          fi
