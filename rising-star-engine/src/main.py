@@ -9,8 +9,15 @@ import logging
 import sys
 from typing import List, Optional
 
+from src.ai.ai_skeptic import AISkeptic, SkepticVerdict, get_ai_skeptic
 from src.config import Settings, get_settings
 from src.connectors.data_connector import YFinanceDataConnector, get_data_connector
+from src.engines.earnings_scanner import (
+    EarningsFilterCriteria,
+    EarningsReactionScanner,
+    EarningsWreckPayload,
+    get_earnings_scanner,
+)
 from src.engines.universe_scanner import (
     UniverseFilterCriteria,
     UniversePayload,
@@ -23,6 +30,14 @@ from src.engines.value_dip_engine import (
     ValueDipPayload,
     ValueDisconnectEngine,
     get_value_disconnect_engine,
+)
+from src.risk.risk_guard import (
+    PortfolioPosition,
+    PortfolioState,
+    PositionSizingPlan,
+    PositionSizingRequest,
+    RiskGuard,
+    get_risk_guard,
 )
 
 logger = logging.getLogger("rising_star.main")
@@ -117,6 +132,98 @@ def run_value_dip_pipeline(
     return dip_payload
 
 
+def run_risk_and_skeptic_pipeline(
+    candidates: Optional[List[ValueDipCandidate]] = None,
+    account_balance: float = 100_000.0,
+    force_offline: bool = False,
+    output_json_path: Optional[str] = None,
+) -> List[dict]:
+    """
+    Headless execution entrypoint for Module 03 (RiskGuard & AI Skeptic adversarial validation).
+    """
+    if candidates is None:
+        # Generate candidates from value dip stage
+        dip_payload = run_value_dip_pipeline()
+        candidates = dip_payload.candidates
+
+    logger.info(f"[STAGE 03: RISK & AI] Evaluating {len(candidates)} candidates through AI Skeptic and RiskGuard")
+    skeptic = get_ai_skeptic(force_offline=force_offline)
+    risk_guard = get_risk_guard()
+
+    portfolio = PortfolioState(total_equity=account_balance, cash=account_balance, positions={})
+    results = []
+
+    for cand in candidates:
+        # 1. Adversarial Skeptic Audit
+        verdict = skeptic.evaluate_candidate_sync(cand)
+
+        # 2. Position Sizing & Stops Calculation
+        atr = cand.atr_14 or max(1.0, cand.current_price * 0.02)
+        sizing_req = PositionSizingRequest(
+            ticker=cand.ticker,
+            entry_price=cand.current_price,
+            atr=atr,
+            account_balance=account_balance,
+        )
+        plan = risk_guard.calculate_position_size(sizing_req)
+
+        # 3. Sector Concentration Validation
+        sector_val = risk_guard.validate_sector_exposure(
+            portfolio=portfolio,
+            ticker=cand.ticker,
+            sector="Technology",  # Default or extracted
+            planned_capital=plan.allocated_capital,
+            share_price=cand.current_price,
+        )
+
+        entry = {
+            "ticker": cand.ticker,
+            "current_price": cand.current_price,
+            "ai_skeptic_verdict": verdict.model_dump(),
+            "position_sizing_plan": plan.model_dump(),
+            "sector_exposure": sector_val.model_dump(),
+            "final_approved": (verdict.verdict == "APPROVED" and plan.is_viable and sector_val.is_allowed),
+        }
+        results.append(entry)
+
+    if output_json_path:
+        with open(output_json_path, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2)
+        logger.info(f"Persisted Risk & AI Skeptic results to: {output_json_path}")
+
+    return results
+
+
+def run_earnings_pipeline(
+    tickers: Optional[List[str]] = None,
+    output_json_path: Optional[str] = None,
+) -> List[EarningsWreckPayload]:
+    """
+    Headless execution entrypoint for Module 03 (Earnings Reaction Scanner).
+    """
+    scanner = get_earnings_scanner()
+    target_tickers = tickers or ["WRECK", "PANIC", "MISS"]
+    # Simulated calendar for demonstration / CLI execution
+    calendar = {
+        t: {
+            "earnings_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "revenue_growth_yoy": 0.06,
+            "eps_surprise_pct": -0.01,
+        }
+        for t in target_tickers
+    }
+
+    logger.info(f"[STAGE 03: EARNINGS] Scanning {len(target_tickers)} tickers for acute reaction overreactions")
+    results = scanner.scan_universe(target_tickers, calendar)
+
+    if output_json_path:
+        with open(output_json_path, "w", encoding="utf-8") as f:
+            json.dump([r.model_dump() for r in results], f, indent=2)
+        logger.info(f"Persisted EarningsWreck results to: {output_json_path}")
+
+    return results
+
+
 def main():
     """CLI Entrypoint for automated cron, background task, or CI/CD container execution."""
     parser = argparse.ArgumentParser(
@@ -124,7 +231,7 @@ def main():
     )
     parser.add_argument(
         "--stage",
-        choices=["universe", "value-dip", "full"],
+        choices=["universe", "value-dip", "risk-ai", "earnings", "full"],
         default="full",
         help="Pipeline execution stage (default: full)",
     )
@@ -151,6 +258,17 @@ def main():
         nargs="+",
         default=[],
         help="GICS sector names to exclude (e.g. 'Financial Services' 'Utilities')",
+    )
+    parser.add_argument(
+        "--account-balance",
+        type=float,
+        default=100_000.0,
+        help="Total account equity in USD for position sizing (default: 100,000)",
+    )
+    parser.add_argument(
+        "--force-offline",
+        action="store_true",
+        help="Force deterministic offline heuristic fallback for AI Skeptic",
     )
     parser.add_argument(
         "--output",
@@ -195,6 +313,34 @@ def main():
                 indent=2,
             )
         )
+    elif args.stage == "risk-ai":
+        risk_results = run_risk_and_skeptic_pipeline(
+            account_balance=args.account_balance,
+            force_offline=args.force_offline,
+            output_json_path=args.output,
+        )
+        print(
+            json.dumps(
+                {
+                    "stage": "risk_and_ai_skeptic",
+                    "account_balance": args.account_balance,
+                    "total_evaluated": len(risk_results),
+                    "approved_trades": [r for r in risk_results if r["final_approved"]],
+                },
+                indent=2,
+            )
+        )
+    elif args.stage == "earnings":
+        earnings_results = run_earnings_pipeline(output_json_path=args.output)
+        print(
+            json.dumps(
+                {
+                    "stage": "earnings_reaction_scanner",
+                    "qualified_wrecks": [r.model_dump() for r in earnings_results],
+                },
+                indent=2,
+            )
+        )
     else:  # full pipeline
         universe = run_universe_pipeline(
             indices=args.indices,
@@ -204,8 +350,14 @@ def main():
         )
         dip_payload = run_value_dip_pipeline(
             universe_payload=universe,
+        )
+        risk_results = run_risk_and_skeptic_pipeline(
+            candidates=dip_payload.candidates,
+            account_balance=args.account_balance,
+            force_offline=args.force_offline,
             output_json_path=args.output,
         )
+        approved = [r for r in risk_results if r["final_approved"]]
         print(
             json.dumps(
                 {
@@ -213,7 +365,8 @@ def main():
                     "universe_scanned": universe.total_symbols_scanned,
                     "universe_qualified": universe.qualified_symbols_count,
                     "value_dips_qualified": dip_payload.qualified_candidates_count,
-                    "qualified_candidates": [c.model_dump() for c in dip_payload.candidates],
+                    "risk_and_ai_approved_count": len(approved),
+                    "actionable_orders": approved,
                 },
                 indent=2,
             )

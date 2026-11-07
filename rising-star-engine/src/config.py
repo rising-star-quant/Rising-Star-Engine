@@ -61,8 +61,17 @@ class Settings(BaseSettings):
     telegram_bot_token: Optional[str] = Field(default=None, description="Telegram bot API token")
     telegram_chat_id: Optional[str] = Field(default=None, description="Telegram broadcast chat or channel ID")
 
-    # AI & Skeptic Engine Credentials
+    # Risk Management & Position Sizing (Module 03 / Module 06)
+    risk_per_trade_pct: float = Field(default=0.015, description="Fixed percentage of account equity risked per trade (1.0% - 2.0%)")
+    max_sector_exposure_pct: float = Field(default=0.20, description="Maximum total portfolio allocation per individual market sector (e.g. 20%)")
+    max_position_capital_pct: float = Field(default=0.15, description="Maximum capital allocated to any single trade (e.g. 15%)")
+    default_atr_stop_multiplier: float = Field(default=2.0, description="Multiplier for ATR-based stop loss calculation (e.g. 2.0x ATR)")
+    default_risk_reward_ratio: float = Field(default=2.5, description="Target profit to risk ratio (e.g. 2.5:1)")
+
+    # AI & Skeptic Engine Credentials (Module 03 / Module 07)
     gemini_api_key: Optional[str] = Field(default=None, description="Google Gemini AI API Key")
+    gemini_model: str = Field(default="gemini-3.8-flash", description="Gemini model identifier for AI Skeptic reasoning")
+    ai_skeptic_rejection_threshold: float = Field(default=0.60, description="Skepticism score threshold above which candidate is REJECTED")
 
     if PYDANTIC_SETTINGS_AVAILABLE:
         model_config = SettingsConfigDict(

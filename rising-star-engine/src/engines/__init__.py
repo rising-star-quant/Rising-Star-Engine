@@ -26,6 +26,12 @@ from .value_dip_engine import (
     ValueDisconnectEngine,
     get_value_disconnect_engine,
 )
+from .earnings_scanner import (
+    EarningsWreckPayload,
+    EarningsFilterCriteria,
+    EarningsReactionScanner,
+    get_earnings_scanner,
+)
 
 __all__ = [
     # Universe Scanner (Module 01)
@@ -49,4 +55,9 @@ __all__ = [
     "ValueDipPayload",
     "ValueDisconnectEngine",
     "get_value_disconnect_engine",
+    # Earnings Scanner (Module 03)
+    "EarningsWreckPayload",
+    "EarningsFilterCriteria",
+    "EarningsReactionScanner",
+    "get_earnings_scanner",
 ]
