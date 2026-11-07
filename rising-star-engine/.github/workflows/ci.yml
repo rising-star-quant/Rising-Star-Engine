@@ -1,49 +1,100 @@
 name: CI Pipeline - Rising Star v2.0
 
+# =============================================================================
+# Rising Star Trend Engine v2.0 - Continuous Integration Pipeline
+# Automated testing, dependency caching, secrets injection, and code validation.
+# =============================================================================
+
 on:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - '.gitignore'
   pull_request:
-    branches: [ main, master ]
-  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - '.gitignore'
+  workflow_dispatch: # Enables manual on-demand execution from GitHub Actions console
+
+# Concurrency group: cancels outdated runs on consecutive commits to the same PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
-    name: Unit Tests & Code Validation
+    name: Run Python 3.11 Test Suite & Coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
-    strategy:
-      matrix:
-        python-version: ["3.11"]
+    # Injected environment variables for test execution and notification checks
+    env:
+      RSTE_ENV: testing
+      PYTHONUNBUFFERED: "1"
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      RSTE_TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      RSTE_TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
     steps:
+      # -----------------------------------------------------------------------
+      # Step 1: Checkout Codebase
+      # -----------------------------------------------------------------------
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      # -----------------------------------------------------------------------
+      # Step 2: Set up Python 3.11 with Pip Caching
+      # -----------------------------------------------------------------------
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-          cache-dependency-path: '**/requirements.txt'
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: "**/requirements.txt"
 
+      # -----------------------------------------------------------------------
+      # Step 3: Install Production & Testing Dependencies
+      # -----------------------------------------------------------------------
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools wheel
           if [ -f "requirements.txt" ]; then
             pip install -r requirements.txt
           elif [ -f "rising-star-engine/requirements.txt" ]; then
             pip install -r rising-star-engine/requirements.txt
           fi
+          # Ensure test harness packages are installed
+          pip install pytest pytest-asyncio pytest-mock pytest-cov httpx respx
 
-      - name: Run Pytest Suite
-        env:
-          RSTE_ENV: testing
+      # -----------------------------------------------------------------------
+      # Step 4: Run Complete Test Suite with Verbose Output & Coverage Check
+      # -----------------------------------------------------------------------
+      - name: Run Pytest Suite with Coverage
         run: |
           if [ -d "rising-star-engine" ]; then
             export PYTHONPATH=rising-star-engine
-            python -m pytest rising-star-engine/tests/ -v --durations=10
+            python -m pytest rising-star-engine/tests/ \
+              -v \
+              --durations=10 \
+              --cov=rising-star-engine/src \
+              --cov-report=term-missing \
+              --cov-report=xml
           else
             export PYTHONPATH=.
-            python -m pytest tests/ -v --durations=10
+            python -m pytest tests/ \
+              -v \
+              --durations=10 \
+              --cov=src \
+              --cov-report=term-missing \
+              --cov-report=xml
           fi
