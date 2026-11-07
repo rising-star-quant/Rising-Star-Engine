@@ -31,6 +31,13 @@ from src.engines.value_dip_engine import (
     ValueDisconnectEngine,
     get_value_disconnect_engine,
 )
+from src.notifications.telegram_alerter import (
+    EarningsWreckAlertPayload,
+    RiskWarningAlertPayload,
+    TelegramAlerter,
+    TradeAlertPayload,
+    get_telegram_alerter,
+)
 from src.risk.risk_guard import (
     PortfolioPosition,
     PortfolioState,
@@ -137,9 +144,11 @@ def run_risk_and_skeptic_pipeline(
     account_balance: float = 100_000.0,
     force_offline: bool = False,
     output_json_path: Optional[str] = None,
+    notify: bool = False,
+    chat_id: Optional[str] = None,
 ) -> List[dict]:
     """
-    Headless execution entrypoint for Module 03 (RiskGuard & AI Skeptic adversarial validation).
+    Headless execution entrypoint for Module 03/04 (RiskGuard, AI Skeptic, and Telegram Alerting).
     """
     if candidates is None:
         # Generate candidates from value dip stage
@@ -149,6 +158,7 @@ def run_risk_and_skeptic_pipeline(
     logger.info(f"[STAGE 03: RISK & AI] Evaluating {len(candidates)} candidates through AI Skeptic and RiskGuard")
     skeptic = get_ai_skeptic(force_offline=force_offline)
     risk_guard = get_risk_guard()
+    alerter = get_telegram_alerter(chat_id=chat_id, force_offline=force_offline) if notify else None
 
     portfolio = PortfolioState(total_equity=account_balance, cash=account_balance, positions={})
     results = []
@@ -176,13 +186,38 @@ def run_risk_and_skeptic_pipeline(
             share_price=cand.current_price,
         )
 
+        is_final_approved = (verdict.verdict == "APPROVED" and plan.is_viable and sector_val.is_allowed)
+
+        # 4. Optional Telegram Dispatch (Module 04)
+        if notify and is_final_approved and alerter:
+            trade_payload = TradeAlertPayload(
+                ticker=cand.ticker,
+                current_price=cand.current_price,
+                stop_loss=plan.stop_loss_price,
+                target_price=plan.target_price,
+                stop_distance=plan.stop_distance,
+                stop_distance_pct=plan.stop_distance_pct,
+                risk_reward_ratio=plan.risk_reward_ratio,
+                recommended_shares=plan.recommended_shares,
+                allocated_capital=plan.allocated_capital,
+                capital_allocation_pct=plan.capital_allocation_pct,
+                risk_amount=plan.risk_amount,
+                distance_from_52w_high_pct=cand.distance_from_52w_high_pct,
+                atr_14=atr,
+                ai_skeptic_verdict=verdict.verdict,
+                skepticism_score=verdict.skepticism_score,
+                devils_advocate_argument=verdict.counter_thesis,
+                justifications=verdict.justification,
+            )
+            alerter.dispatch_trade_alert_sync(trade_payload)
+
         entry = {
             "ticker": cand.ticker,
             "current_price": cand.current_price,
             "ai_skeptic_verdict": verdict.model_dump(),
             "position_sizing_plan": plan.model_dump(),
             "sector_exposure": sector_val.model_dump(),
-            "final_approved": (verdict.verdict == "APPROVED" and plan.is_viable and sector_val.is_allowed),
+            "final_approved": is_final_approved,
         }
         results.append(entry)
 
@@ -271,6 +306,17 @@ def main():
         help="Force deterministic offline heuristic fallback for AI Skeptic",
     )
     parser.add_argument(
+        "--notify",
+        action="store_true",
+        help="Dispatch real-time alerts to Telegram for qualified trades",
+    )
+    parser.add_argument(
+        "--telegram-chat-id",
+        type=str,
+        default=None,
+        help="Optional destination Telegram chat ID override",
+    )
+    parser.add_argument(
         "--output",
         type=str,
         default=None,
@@ -318,6 +364,8 @@ def main():
             account_balance=args.account_balance,
             force_offline=args.force_offline,
             output_json_path=args.output,
+            notify=args.notify,
+            chat_id=args.telegram_chat_id,
         )
         print(
             json.dumps(
@@ -356,6 +404,8 @@ def main():
             account_balance=args.account_balance,
             force_offline=args.force_offline,
             output_json_path=args.output,
+            notify=args.notify,
+            chat_id=args.telegram_chat_id,
         )
         approved = [r for r in risk_results if r["final_approved"]]
         print(

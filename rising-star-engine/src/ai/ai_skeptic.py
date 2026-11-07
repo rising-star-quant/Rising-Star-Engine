@@ -108,6 +108,35 @@ class SkepticVerdict(BaseModel):
     )
 
 
+class AISkepticEvaluation(BaseModel):
+    """
+    Module 04 Micro-PRD Data Contract: Qualitative Adversarial Evaluation Hub.
+    """
+    ticker: str = Field(..., description="Equity ticker symbol")
+    verdict: Literal["GOLDEN_OPPORTUNITY", "FOOLS_TRAP", "HIGH_RISK_DIP"] = Field(
+        ...,
+        description="Qualitative categorization: GOLDEN_OPPORTUNITY, FOOLS_TRAP, or HIGH_RISK_DIP"
+    )
+    skepticism_index: int = Field(
+        ...,
+        ge=1,
+        le=10,
+        description="Integer score from 1 (low doubt) to 10 (extreme doubt)"
+    )
+    devils_advocate_argument: str = Field(
+        ...,
+        description="Concise textual explanation of primary risks"
+    )
+    recovery_catalyst: str = Field(
+        ...,
+        description="Turnaround catalyst or fundamental driver"
+    )
+    evaluated_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat(),
+        description="UTC ISO 8601 evaluation timestamp"
+    )
+
+
 class AISkeptic:
     """
     Asynchronous AI Skeptic engine.
@@ -452,6 +481,68 @@ class AISkeptic:
             )
         except RuntimeError:
             return asyncio.run(self.evaluate_batch(candidates, rejection_threshold))
+
+    async def evaluate_hub(
+        self,
+        candidate: Union[SkepticAnalysisRequest, ValueDipCandidate, Dict[str, Any]],
+        recovery_catalyst_override: Optional[str] = None,
+    ) -> AISkepticEvaluation:
+        """
+        Emits normalized AISkepticEvaluation matching Module 04 Micro-PRD:
+        - verdict in [GOLDEN_OPPORTUNITY, FOOLS_TRAP, HIGH_RISK_DIP]
+        - skepticism_index: integer 1 to 10
+        - devils_advocate_argument: concise textual explanation of primary risks
+        - recovery_catalyst: expected recovery catalyst
+        """
+        verdict = await self.evaluate_candidate(candidate)
+        score = verdict.skepticism_score
+        index = max(1, min(10, int(round(score * 10))))
+        if index == 0:
+            index = 1
+
+        if score < 0.35:
+            hub_verdict: Literal["GOLDEN_OPPORTUNITY", "FOOLS_TRAP", "HIGH_RISK_DIP"] = "GOLDEN_OPPORTUNITY"
+            default_catalyst = "Strong fundamental moat and margin expansion driving mean-reversion."
+        elif score < 0.60:
+            hub_verdict = "HIGH_RISK_DIP"
+            default_catalyst = "Short-term momentum stabilization and upcoming quarterly earnings confirmation."
+        else:
+            hub_verdict = "FOOLS_TRAP"
+            default_catalyst = "Protracted restructuring required before risk-reward profile turns favorable."
+
+        argument = verdict.counter_thesis or (
+            " | ".join(verdict.red_flags) if verdict.red_flags else "No major structural red flags detected."
+        )
+
+        return AISkepticEvaluation(
+            ticker=verdict.ticker,
+            verdict=hub_verdict,
+            skepticism_index=index,
+            devils_advocate_argument=argument,
+            recovery_catalyst=recovery_catalyst_override or default_catalyst,
+            evaluated_at=verdict.evaluated_at,
+        )
+
+    def evaluate_hub_sync(
+        self,
+        candidate: Union[SkepticAnalysisRequest, ValueDipCandidate, Dict[str, Any]],
+        recovery_catalyst_override: Optional[str] = None,
+    ) -> AISkepticEvaluation:
+        """Synchronous wrapper for evaluate_hub."""
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    return executor.submit(
+                        asyncio.run,
+                        self.evaluate_hub(candidate, recovery_catalyst_override)
+                    ).result()
+            return loop.run_until_complete(
+                self.evaluate_hub(candidate, recovery_catalyst_override)
+            )
+        except RuntimeError:
+            return asyncio.run(self.evaluate_hub(candidate, recovery_catalyst_override))
 
 
 def get_ai_skeptic(
