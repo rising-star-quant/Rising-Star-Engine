@@ -275,24 +275,24 @@ class AISkeptic:
         )
 
     def _build_adversarial_prompt(self, request: SkepticAnalysisRequest) -> str:
-        """Constructs detailed adversarial evaluation prompt for Gemini LLM in professional Hebrew."""
+        """Constructs detailed adversarial evaluation prompt for Gemini LLM with selective Hebrew critique."""
         return (
             f"You are the Adversarial Skeptic and Lead Forensic Analyst for a quantitative trend fund.\n"
-            f"Analyze the stock data and provide your professional financial critique and decision strictly in Hebrew (עברית מקצועית).\n\n"
-            f"נתוני המניה המועמדת לבדיקה:\n"
-            f"טיקר (Ticker): {request.ticker}\n"
-            f"מחיר נוכחי: ${request.current_price:.2f}\n"
-            f"נסיגה משיא שנתי (52W Pullback): {request.distance_from_52w_high_pct:.1%}\n"
-            f"סקטור: {request.sector}\n"
-            f"תעשייה: {request.industry}\n"
-            f"אינדיקטורים פונדמנטליים: {json.dumps(request.financials or {}, indent=2, ensure_ascii=False)}\n"
-            f"חדשות וכותרות: {json.dumps(request.news_headlines or [], indent=2, ensure_ascii=False)}\n\n"
-            f"הנחיות ומשימות (CRITICAL INSTRUCTIONS):\n"
-            f"1. שחק את תפקיד 'פרקליט השטן' (Devil's Advocate). אתר סיבות מדוע ירידת המחיר הנוכחית איננה תגובת יתר, אלא מלכודת ערך מסוכנת (Value Trap).\n"
-            f"2. בדוק אי-סדרים חשבונאיים, עומסי חוב ומחזורי פירעון קרובים, תביעות משפטיות, שחיקת שולי רווח או איום של שינוי טכנולוגי.\n"
-            f"3. קבע ציון ספקנות (skepticism_score) בין 0.0 (חברה יציבה וחסינה ללא סיכון מבני) לבין 1.0 (מלכודת ערך קטלנית).\n"
-            f"4. אם skepticism_score >= 0.60, קבע את ערך ה-verdict כ-'REJECTED'. אחרת, קבע 'APPROVED'.\n"
-            f"5. ספק נורות אזהרה (red_flags), נימוקים אנליטיים (justification), ותזת נגד (counter_thesis) אך ורק בעברית מקצועית, שוטפת, בהירה ועסקית.\n"
+            f"Analyze the following candidate stock that has triggered a Value Dip setup:\n\n"
+            f"Ticker: {request.ticker}\n"
+            f"Current Price: ${request.current_price:.2f}\n"
+            f"Retracement from 52-Week Peak: {request.distance_from_52w_high_pct:.1%}\n"
+            f"Sector: {request.sector}\n"
+            f"Industry: {request.industry}\n"
+            f"Fundamental Indicators: {json.dumps(request.financials or {}, indent=2, ensure_ascii=False)}\n"
+            f"News / Catalysts: {json.dumps(request.news_headlines or [], indent=2, ensure_ascii=False)}\n\n"
+            f"TASK & INSTRUCTIONS:\n"
+            f"1. Play Devil's Advocate (פרקליט השטן). Uncover critical reasons why this dip is NOT an overreaction but a dangerous value trap (מלכודת ערך).\n"
+            f"2. Inspect for accounting irregularities, debt maturity cliffs, litigation, technological displacement, or structural margin decay.\n"
+            f"3. Assign a skepticism_score between 0.0 (pristine/safe) and 1.0 (deadly value trap).\n"
+            f"4. If skepticism_score >= 0.60, set verdict to 'REJECTED'. Otherwise 'APPROVED'.\n"
+            f"5. Provide your critique, risk analysis, and recovery catalysts strictly in professional Hebrew (עברית מקצועית ופיננסית). Keep technical terms or metric names clear.\n"
+            f"   - All textual fields ('red_flags', 'justification', and 'counter_thesis') must be written in professional, analytical Hebrew.\n"
         )
 
     async def _call_gemini_api(

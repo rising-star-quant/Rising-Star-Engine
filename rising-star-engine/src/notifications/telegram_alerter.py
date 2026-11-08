@@ -155,7 +155,10 @@ class TelegramMessageBuilder:
 
     @classmethod
     def build_trade_alert_markdown(cls, payload: TradeAlertPayload) -> str:
-        """Formats a high-conviction trade alert into Telegram MarkdownV2 in professional Hebrew."""
+        """
+        Formats a high-conviction trade alert into Telegram MarkdownV2.
+        System headers, metrics, and labels remain in English, while AI Skeptic critique is in Hebrew.
+        """
         esc = cls.escape_markdown_v2
 
         lines = [
@@ -164,14 +167,14 @@ class TelegramMessageBuilder:
         ]
 
         if payload.company_name:
-            lines.append(f"🏢 *חברה:* {esc(payload.company_name)}")
+            lines.append(f"🏢 *Company:* {esc(payload.company_name)}")
 
         retrace_str = (
             f"{payload.distance_from_52w_high_pct:.1%}"
             if payload.distance_from_52w_high_pct is not None
             else "N/A"
         )
-        lines.append(f"🌐 *סקטור:* {esc(payload.sector)} \\| *נסיגה משיא \\(52W Pullback\\):* {esc(retrace_str)}")
+        lines.append(f"🌐 *Sector:* {esc(payload.sector)} \\| *52W Pullback:* {esc(retrace_str)}")
         lines.append("")
 
         stop_dist_pct = (
@@ -181,30 +184,30 @@ class TelegramMessageBuilder:
         )
         target_dist_pct = f"(+{((payload.target_price - payload.current_price) / payload.current_price):.1%})"
 
-        lines.append(f"💵 *מחיר כניסה:* `${payload.current_price:.2f}`")
-        lines.append(f"🛑 *סטופ\\-לוס \\(Stop\\-Loss\\):* `${payload.stop_loss:.2f}` {esc(stop_dist_pct)}")
-        lines.append(f"🎯 *יעד רווח \\(Take\\-Profit\\):* `${payload.target_price:.2f}` {esc(target_dist_pct)}")
-        lines.append(f"⚖️ *יחס סיכוי/סיכון:* `{payload.risk_reward_ratio:.2f}:1`")
+        lines.append(f"💵 *Entry Price:* `${payload.current_price:.2f}`")
+        lines.append(f"🛑 *Stop\\-Loss:* `${payload.stop_loss:.2f}` {esc(stop_dist_pct)}")
+        lines.append(f"🎯 *Take\\-Profit:* `${payload.target_price:.2f}` {esc(target_dist_pct)}")
+        lines.append(f"⚖️ *Risk/Reward:* `{payload.risk_reward_ratio:.2f}:1`")
 
         if payload.atr_14:
-            lines.append(f"📐 *מדד תנודתיות ATR \\(14\\):* `${payload.atr_14:.2f}`")
+            lines.append(f"📐 *ATR \\(14\\):* `${payload.atr_14:.2f}`")
 
         # Position Sizing
         if payload.recommended_shares is not None and payload.recommended_shares > 0:
             lines.append("")
-            lines.append("💼 *תוכנית הקצאה וניהול סיכונים:*")
-            lines.append(f"• *כמות מניות מומלצת:* `{payload.recommended_shares:,}`")
+            lines.append("💼 *Position Sizing Plan:*")
+            lines.append(f"• *Recommended Shares:* `{payload.recommended_shares:,}`")
             if payload.allocated_capital is not None:
                 cap_pct_str = (
-                    f" \\({esc(f'{payload.capital_allocation_pct:.1%}')} מהתיק\\)"
+                    f" \\({esc(f'{payload.capital_allocation_pct:.1%}')} equity\\)"
                     if payload.capital_allocation_pct is not None
                     else ""
                 )
-                lines.append(f"• *הון מוקצה לפוזיציה:* `${payload.allocated_capital:,.2f}`{cap_pct_str}")
+                lines.append(f"• *Capital Allocated:* `${payload.allocated_capital:,.2f}`{cap_pct_str}")
             if payload.risk_amount is not None:
-                lines.append(f"• *תקציב סיכון מירבי:* `${payload.risk_amount:,.2f}`")
+                lines.append(f"• *Max Risk Budget:* `${payload.risk_amount:,.2f}`")
 
-        # AI Skeptic Verification
+        # AI Skeptic Verification (Hebrew forensic analysis inside English template)
         if payload.ai_skeptic_verdict or payload.devils_advocate_argument:
             lines.append("")
             verdict = payload.ai_skeptic_verdict or "FLAGGED"
@@ -212,14 +215,14 @@ class TelegramMessageBuilder:
             score_str = f"{payload.skepticism_score:.2f}" if payload.skepticism_score is not None else "N/A"
             index_str = f" \\({payload.skepticism_index}/10\\)" if payload.skepticism_index is not None else ""
             lines.append(
-                f"{verdict_icon} *הערכת AI Skeptic \\(בדיקה ספקנית\\):* `{esc(verdict)}` "
-                f"\\(רמת ספקנות: {esc(score_str)}{index_str}\\)"
+                f"{verdict_icon} *AI Skeptic Audit:* `{esc(verdict)}` "
+                f"\\(Doubt: {esc(score_str)}{index_str}\\)"
             )
 
             if payload.devils_advocate_argument:
-                lines.append(f"• *פרקליט השטן / סיכונים:* _{esc(payload.devils_advocate_argument)}_")
+                lines.append(f"• *Devil's Advocate:* _{esc(payload.devils_advocate_argument)}_")
             if payload.recovery_catalyst:
-                lines.append(f"• *זרז התאוששות:* _{esc(payload.recovery_catalyst)}_")
+                lines.append(f"• *Recovery Catalyst:* _{esc(payload.recovery_catalyst)}_")
             for just in payload.justifications[:2]:
                 lines.append(f"• {esc(just)}")
 
@@ -231,7 +234,10 @@ class TelegramMessageBuilder:
 
     @classmethod
     def build_trade_alert_html(cls, payload: TradeAlertPayload) -> str:
-        """Formats a high-conviction trade alert into Telegram HTML in professional Hebrew."""
+        """
+        Formats a high-conviction trade alert into Telegram HTML.
+        System headers, metrics, and labels remain in English, while AI Skeptic critique is in Hebrew.
+        """
         esc = cls.escape_html
 
         lines = [
@@ -240,14 +246,14 @@ class TelegramMessageBuilder:
         ]
 
         if payload.company_name:
-            lines.append(f"🏢 <b>חברה:</b> {esc(payload.company_name)}")
+            lines.append(f"🏢 <b>Company:</b> {esc(payload.company_name)}")
 
         retrace_str = (
             f"{payload.distance_from_52w_high_pct:.1%}"
             if payload.distance_from_52w_high_pct is not None
             else "N/A"
         )
-        lines.append(f"🌐 <b>סקטור:</b> {esc(payload.sector)} | <b>נסיגה משיא (52W Pullback):</b> {retrace_str}")
+        lines.append(f"🌐 <b>Sector:</b> {esc(payload.sector)} | <b>52W Pullback:</b> {retrace_str}")
         lines.append("")
 
         stop_dist_pct = (
@@ -257,27 +263,27 @@ class TelegramMessageBuilder:
         )
         target_dist_pct = f"(+{((payload.target_price - payload.current_price) / payload.current_price):.1%})"
 
-        lines.append(f"💵 <b>מחיר כניסה:</b> <code>${payload.current_price:.2f}</code>")
-        lines.append(f"🛑 <b>סטופ-לוס (Stop-Loss):</b> <code>${payload.stop_loss:.2f}</code> {stop_dist_pct}")
-        lines.append(f"🎯 <b>יעד רווח (Take-Profit):</b> <code>${payload.target_price:.2f}</code> {target_dist_pct}")
-        lines.append(f"⚖️ <b>יחס סיכוי/סיכון:</b> <code>{payload.risk_reward_ratio:.2f}:1</code>")
+        lines.append(f"💵 <b>Entry Price:</b> <code>${payload.current_price:.2f}</code>")
+        lines.append(f"🛑 <b>Stop-Loss:</b> <code>${payload.stop_loss:.2f}</code> {stop_dist_pct}")
+        lines.append(f"🎯 <b>Take-Profit:</b> <code>${payload.target_price:.2f}</code> {target_dist_pct}")
+        lines.append(f"⚖️ <b>Risk/Reward:</b> <code>{payload.risk_reward_ratio:.2f}:1</code>")
 
         if payload.atr_14:
-            lines.append(f"📐 <b>מדד תנודתיות ATR (14):</b> <code>${payload.atr_14:.2f}</code>")
+            lines.append(f"📐 <b>ATR (14):</b> <code>${payload.atr_14:.2f}</code>")
 
         if payload.recommended_shares is not None and payload.recommended_shares > 0:
             lines.append("")
-            lines.append("💼 <b>תוכנית הקצאה וניהול סיכונים:</b>")
-            lines.append(f"• <b>כמות מניות מומלצת:</b> <code>{payload.recommended_shares:,}</code>")
+            lines.append("💼 <b>Position Sizing Plan:</b>")
+            lines.append(f"• <b>Recommended Shares:</b> <code>{payload.recommended_shares:,}</code>")
             if payload.allocated_capital is not None:
                 cap_pct_str = (
-                    f" ({payload.capital_allocation_pct:.1%} מהתיק)"
+                    f" ({payload.capital_allocation_pct:.1%} equity)"
                     if payload.capital_allocation_pct is not None
                     else ""
                 )
-                lines.append(f"• <b>הון מוקצה לפוזיציה:</b> <code>${payload.allocated_capital:,.2f}</code>{cap_pct_str}")
+                lines.append(f"• <b>Capital Allocated:</b> <code>${payload.allocated_capital:,.2f}</code>{cap_pct_str}")
             if payload.risk_amount is not None:
-                lines.append(f"• <b>תקציב סיכון מירבי:</b> <code>${payload.risk_amount:,.2f}</code>")
+                lines.append(f"• <b>Max Risk Budget:</b> <code>${payload.risk_amount:,.2f}</code>")
 
         if payload.ai_skeptic_verdict or payload.devils_advocate_argument:
             lines.append("")
@@ -286,14 +292,14 @@ class TelegramMessageBuilder:
             score_str = f"{payload.skepticism_score:.2f}" if payload.skepticism_score is not None else "N/A"
             index_str = f" ({payload.skepticism_index}/10)" if payload.skepticism_index is not None else ""
             lines.append(
-                f"{verdict_icon} <b>הערכת AI Skeptic (בדיקה ספקנית):</b> <code>{esc(verdict)}</code> "
-                f"(רמת ספקנות: {score_str}{index_str})"
+                f"{verdict_icon} <b>AI Skeptic Audit:</b> <code>{esc(verdict)}</code> "
+                f"(Doubt: {score_str}{index_str})"
             )
 
             if payload.devils_advocate_argument:
-                lines.append(f"• <b>פרקליט השטן / סיכונים:</b> <i>{esc(payload.devils_advocate_argument)}</i>")
+                lines.append(f"• <b>Devil's Advocate:</b> <i>{esc(payload.devils_advocate_argument)}</i>")
             if payload.recovery_catalyst:
-                lines.append(f"• <b>זרז התאוששות:</b> <i>{esc(payload.recovery_catalyst)}</i>")
+                lines.append(f"• <b>Recovery Catalyst:</b> <i>{esc(payload.recovery_catalyst)}</i>")
             for just in payload.justifications[:2]:
                 lines.append(f"• {esc(just)}")
 
@@ -310,34 +316,34 @@ class TelegramMessageBuilder:
 
     @classmethod
     def build_earnings_wreck_alert(cls, payload: EarningsWreckAlertPayload) -> str:
-        """Formats an earnings overreaction alert into Telegram HTML in professional Hebrew."""
+        """Formats an earnings overreaction alert into Telegram HTML in English with Hebrew AI commentary."""
         esc = cls.escape_html
         lines = [
             f"<b>{esc(payload.title)}: {esc(payload.ticker)}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━",
-            f"📅 <b>תאריך פרסום הדוח (Earnings Date):</b> {esc(payload.earnings_date)}",
+            f"📅 <b>Earnings Date:</b> {esc(payload.earnings_date)}",
         ]
 
         if payload.current_price:
-            lines.append(f"💵 <b>מחיר נוכחי:</b> <code>${payload.current_price:.2f}</code>")
+            lines.append(f"💵 <b>Current Price:</b> <code>${payload.current_price:.2f}</code>")
 
-        lines.append(f"📉 <b>ירידה יומית (1-Day Drop):</b> <code>{payload.price_change_1d_pct:.1%}</code>")
+        lines.append(f"📉 <b>1-Day Drop:</b> <code>{payload.price_change_1d_pct:.1%}</code>")
         if payload.price_change_3d_pct is not None:
-            lines.append(f"📉 <b>ירידה מצטברת ל-3 ימים (3-Day Drop):</b> <code>{payload.price_change_3d_pct:.1%}</code>")
+            lines.append(f"📉 <b>3-Day Drop:</b> <code>{payload.price_change_3d_pct:.1%}</code>")
 
-        lines.append(f"📊 <b>נפח מסחר יחסי (Relative Volume):</b> <code>{payload.relative_volume:.2f}x</code> לעומת ממוצע 30 יום")
+        lines.append(f"📊 <b>Relative Volume:</b> <code>{payload.relative_volume:.2f}x</code> 30d ADV")
 
-        rev_status = "✅ תקין PASS (Intact)" if payload.revenue_integrity_passed else "❌ כשל FAIL (Deterioration)"
-        lines.append(f"🛡️ <b>שלמות הכנסות (Revenue Integrity):</b> {rev_status}")
+        rev_status = "✅ PASS (Intact)" if payload.revenue_integrity_passed else "❌ FAIL (Deterioration)"
+        lines.append(f"🛡️ <b>Revenue Integrity:</b> {rev_status}")
 
         if payload.revenue_growth_yoy is not None:
-            lines.append(f"📈 <b>צמיחה שנתית בהכנסות:</b> <code>{payload.revenue_growth_yoy:+.1%}</code>")
+            lines.append(f"📈 <b>YoY Revenue Growth:</b> <code>{payload.revenue_growth_yoy:+.1%}</code>")
         if payload.eps_surprise_pct is not None:
-            lines.append(f"🎯 <b>הפתעת רווח למניה (EPS Surprise):</b> <code>{payload.eps_surprise_pct:.1%}</code>")
+            lines.append(f"🎯 <b>EPS Surprise:</b> <code>{payload.eps_surprise_pct:.1%}</code>")
 
         if payload.ai_skeptic_commentary:
             lines.append("")
-            lines.append(f"🧠 <b>בדיקת ספקנות אנליטית AI:</b>\n<i>{esc(payload.ai_skeptic_commentary)}</i>")
+            lines.append(f"🧠 <b>AI Forensic Sanity Check:</b>\n<i>{esc(payload.ai_skeptic_commentary)}</i>")
 
         lines.append("")
         lines.append(f"⏰ <i>{esc(payload.timestamp[:19])} UTC</i>")
@@ -345,26 +351,26 @@ class TelegramMessageBuilder:
 
     @classmethod
     def build_risk_warning_alert(cls, payload: RiskWarningAlertPayload) -> str:
-        """Formats a portfolio risk limit warning into Telegram HTML in professional Hebrew."""
+        """Formats a portfolio risk limit warning into Telegram HTML in English."""
         esc = cls.escape_html
         lines = [
             f"<b>{esc(payload.title)}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━",
-            f"🚨 <b>סוג התראה (Warning Type):</b> <code>{esc(payload.warning_type)}</code>",
+            f"🚨 <b>Warning Type:</b> <code>{esc(payload.warning_type)}</code>",
         ]
 
         if payload.ticker:
-            lines.append(f"🏷️ <b>טיקר (Ticker):</b> <code>{esc(payload.ticker)}</code>")
+            lines.append(f"🏷️ <b>Ticker:</b> <code>{esc(payload.ticker)}</code>")
         if payload.sector:
-            lines.append(f"🌐 <b>סקטור (Sector):</b> <code>{esc(payload.sector)}</code>")
+            lines.append(f"🌐 <b>Sector:</b> <code>{esc(payload.sector)}</code>")
 
         lines.append("")
-        lines.append(f"📝 <b>תיאור המצב (Condition):</b> {esc(payload.details)}")
-        lines.append(f"🛡️ <b>פעולת מנע שננקטה (Enforced Action):</b> <b>{esc(payload.action_taken)}</b>")
+        lines.append(f"📝 <b>Condition:</b> {esc(payload.details)}")
+        lines.append(f"🛡️ <b>Enforced Action:</b> <b>{esc(payload.action_taken)}</b>")
 
         if payload.current_metrics:
             lines.append("")
-            lines.append("📊 <b>מדדי סיכון (Metrics Snapshot):</b>")
+            lines.append("📊 <b>Metrics Snapshot:</b>")
             for k, v in payload.current_metrics.items():
                 lines.append(f"• {esc(k)}: <code>{esc(v)}</code>")
 

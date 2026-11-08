@@ -581,9 +581,9 @@ class TestAISkeptic:
         )
         prompt = ai_skeptic._build_adversarial_prompt(req)
 
-        # Prompt explicitly instructs Hebrew output
-        assert "Analyze the stock data and provide your professional financial critique and decision strictly in Hebrew (עברית מקצועית)." in prompt
-        assert "עברית מקצועית" in prompt
+        # Prompt explicitly instructs Hebrew output for critique and risks
+        assert "Provide your critique, risk analysis, and recovery catalysts strictly in professional Hebrew" in prompt
+        assert "עברית מקצועית ופיננסית" in prompt
         assert "פרקליט השטן" in prompt
 
         # Offline heuristic produces valid Hebrew justification and counter thesis

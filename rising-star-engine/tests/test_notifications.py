@@ -301,12 +301,12 @@ class TestTelegramMessageBuilder:
         assert "Growth &lt; 0% &amp; Debt &gt; 5.0x" in msg
 
     def test_hebrew_formatting_in_telegram_alerts(self):
-        """Verifies professional Hebrew headers, labels, and properly aligned metrics in alerts."""
+        """Verifies selective localization: English UI/metrics labels with professional Hebrew AI audit."""
         payload = TradeAlertPayload(
-            title="התראת מניה חמה",
+            title="🎯 VALUE DIP DETECTED",
             ticker="AMZN",
-            company_name="אמזון קום בע\"מ",
-            sector="טכנולוגיה וקמעונאות",
+            company_name="Amazon.com Inc.",
+            sector="Consumer Discretionary",
             current_price=185.20,
             stop_loss=174.50,
             target_price=212.00,
@@ -330,23 +330,28 @@ class TestTelegramMessageBuilder:
         html_msg = TelegramMessageBuilder.build_trade_alert_html(payload)
         md_msg = TelegramMessageBuilder.build_trade_alert_markdown(payload)
 
-        # Check Hebrew labels in HTML
-        assert "התראת מניה חמה: AMZN" in html_msg
-        assert "חברה:</b> אמזון קום בע\"מ" in html_msg
-        assert "מחיר כניסה:</b> <code>$185.20</code>" in html_msg
-        assert "סטופ-לוס (Stop-Loss):</b> <code>$174.50</code>" in html_msg
-        assert "יעד רווח (Take-Profit):</b> <code>$212.00</code>" in html_msg
-        assert "יחס סיכוי/סיכון:</b> <code>2.50:1</code>" in html_msg
-        assert "הערכת AI Skeptic (בדיקה ספקנית):" in html_msg
-        assert "פרקליט השטן / סיכונים:</b> <i>לחצים תחרותיים בתחום הענן והשקעות הון מוגברות ב-AI.</i>" in html_msg
-        assert "זרז התאוששות:</b> <i>האצה בהכנסות AWS ושיפור שיעורי הרווחיות התפעולית.</i>" in html_msg
+        # Check English system labels in HTML
+        assert "<b>🎯 VALUE DIP DETECTED: AMZN</b>" in html_msg
+        assert "🏢 <b>Company:</b> Amazon.com Inc." in html_msg
+        assert "💵 <b>Entry Price:</b> <code>$185.20</code>" in html_msg
+        assert "🛑 <b>Stop-Loss:</b> <code>$174.50</code>" in html_msg
+        assert "🎯 <b>Take-Profit:</b> <code>$212.00</code>" in html_msg
+        assert "⚖️ <b>Risk/Reward:</b> <code>2.50:1</code>" in html_msg
+        assert "<b>AI Skeptic Audit:</b>" in html_msg
 
-        # Check Hebrew labels in MarkdownV2
-        assert "התראת מניה חמה: AMZN" in md_msg
-        assert "מחיר כניסה:* `$185.20`" in md_msg
-        assert "סטופ\\-לוס \\(Stop\\-Loss\\):* `$174.50`" in md_msg
-        assert "יעד רווח \\(Take\\-Profit\\):* `$212.00`" in md_msg
-        assert "הערכת AI Skeptic \\(בדיקה ספקנית\\):" in md_msg
+        # Check Hebrew AI critique content in HTML
+        assert "<b>Devil's Advocate:</b> <i>לחצים תחרותיים בתחום הענן והשקעות הון מוגברות ב-AI.</i>" in html_msg
+        assert "<b>Recovery Catalyst:</b> <i>האצה בהכנסות AWS ושיפור שיעורי הרווחיות התפעולית.</i>" in html_msg
+        assert "צמיחה יציבה בתזרים המזומנים החופשי" in html_msg
+
+        # Check English system labels and Hebrew AI critique in MarkdownV2
+        assert "*🎯 VALUE DIP DETECTED: AMZN*" in md_msg
+        assert "💵 *Entry Price:* `$185.20`" in md_msg
+        assert "🛑 *Stop\\-Loss:* `$174.50`" in md_msg
+        assert "🎯 *Take\\-Profit:* `$212.00`" in md_msg
+        assert "*AI Skeptic Audit:*" in md_msg
+        assert "לחצים תחרותיים בתחום הענן והשקעות הון מוגברות ב\\-AI\\." in md_msg
+        assert "האצה בהכנסות AWS ושיפור שיעורי הרווחיות התפעולית\\." in md_msg
 
 
 # =====================================================================
