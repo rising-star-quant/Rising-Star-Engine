@@ -300,6 +300,54 @@ class TestTelegramMessageBuilder:
         assert "&amp; Co" in msg
         assert "Growth &lt; 0% &amp; Debt &gt; 5.0x" in msg
 
+    def test_hebrew_formatting_in_telegram_alerts(self):
+        """Verifies professional Hebrew headers, labels, and properly aligned metrics in alerts."""
+        payload = TradeAlertPayload(
+            title="התראת מניה חמה",
+            ticker="AMZN",
+            company_name="אמזון קום בע\"מ",
+            sector="טכנולוגיה וקמעונאות",
+            current_price=185.20,
+            stop_loss=174.50,
+            target_price=212.00,
+            stop_distance=10.70,
+            stop_distance_pct=0.0578,
+            risk_reward_ratio=2.50,
+            recommended_shares=140,
+            allocated_capital=25928.00,
+            capital_allocation_pct=0.15,
+            risk_amount=1498.00,
+            distance_from_52w_high_pct=-0.185,
+            atr_14=4.25,
+            ai_skeptic_verdict="APPROVED",
+            skepticism_score=0.18,
+            skepticism_index=2,
+            devils_advocate_argument="לחצים תחרותיים בתחום הענן והשקעות הון מוגברות ב-AI.",
+            recovery_catalyst="האצה בהכנסות AWS ושיפור שיעורי הרווחיות התפעולית.",
+            justifications=["צמיחה יציבה בתזרים המזומנים החופשי", "שולי רווח עמידים"],
+        )
+
+        html_msg = TelegramMessageBuilder.build_trade_alert_html(payload)
+        md_msg = TelegramMessageBuilder.build_trade_alert_markdown(payload)
+
+        # Check Hebrew labels in HTML
+        assert "התראת מניה חמה: AMZN" in html_msg
+        assert "חברה:</b> אמזון קום בע\"מ" in html_msg
+        assert "מחיר כניסה:</b> <code>$185.20</code>" in html_msg
+        assert "סטופ-לוס (Stop-Loss):</b> <code>$174.50</code>" in html_msg
+        assert "יעד רווח (Take-Profit):</b> <code>$212.00</code>" in html_msg
+        assert "יחס סיכוי/סיכון:</b> <code>2.50:1</code>" in html_msg
+        assert "הערכת AI Skeptic (בדיקה ספקנית):" in html_msg
+        assert "פרקליט השטן / סיכונים:</b> <i>לחצים תחרותיים בתחום הענן והשקעות הון מוגברות ב-AI.</i>" in html_msg
+        assert "זרז התאוששות:</b> <i>האצה בהכנסות AWS ושיפור שיעורי הרווחיות התפעולית.</i>" in html_msg
+
+        # Check Hebrew labels in MarkdownV2
+        assert "התראת מניה חמה: AMZN" in md_msg
+        assert "מחיר כניסה:* `$185.20`" in md_msg
+        assert "סטופ\\-לוס \\(Stop\\-Loss\\):* `$174.50`" in md_msg
+        assert "יעד רווח \\(Take\\-Profit\\):* `$212.00`" in md_msg
+        assert "הערכת AI Skeptic \\(בדיקה ספקנית\\):" in md_msg
+
 
 # =====================================================================
 # 3. ASYNC TELEGRAM ALERTER DISPATCH TESTS

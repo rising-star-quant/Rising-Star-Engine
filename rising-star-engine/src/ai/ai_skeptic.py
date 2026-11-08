@@ -186,40 +186,40 @@ class AISkeptic:
         de = financials.get("debt_to_equity")
         if de is not None:
             if de > 1.8:
-                red_flags.append(f"Severe balance sheet leverage: D/E ratio at {de:.2f} (ceiling 1.5)")
+                red_flags.append(f"מינוף מאזני כבד (Severe balance sheet leverage): יחס חוב להון (D/E ratio) ברמה של {de:.2f} (תקרה 1.5)")
                 score += 0.45
             elif de > 1.3:
-                red_flags.append(f"Elevated debt load: D/E ratio at {de:.2f}")
+                red_flags.append(f"עומס חוב מוגבר (Elevated debt load): יחס חוב להון (D/E ratio) של {de:.2f}")
                 score += 0.20
             else:
-                justification.append(f"Prudent capital structure: D/E of {de:.2f} well within safety bounds.")
+                justification.append(f"מבנה הון שמרני ומאוזן: יחס חוב להון (D/E) של {de:.2f} בתוך גבולות הבטיחות.")
 
         # 2. Analyze Free Cash Flow
         fcf = financials.get("free_cash_flow")
         if fcf is not None:
             if fcf < 0:
-                red_flags.append(f"Negative Free Cash Flow (${fcf:,.0f}): indicates structural cash burn.")
+                red_flags.append(f"תזרים מזומנים חופשי שלילי (${fcf:,.0f}): מעיד על שריפת מזומנים מבנית (Cash burn).")
                 score += 0.35
             else:
-                justification.append(f"Positive Free Cash Flow (${fcf:,.0f}) supports solvency through downturn.")
+                justification.append(f"תזרים מזומנים חופשי חיובי (${fcf:,.0f}) תומך ביציבות ובנזילות לאורך הירידה.")
 
         # 3. Analyze Revenue Growth (Top-line integrity)
         rev_growth = financials.get("revenue_growth_qoq")
         if rev_growth is not None:
             if rev_growth < -0.05:
-                red_flags.append(f"Contracting revenue growth ({rev_growth:.1%}): suggests secular market share loss.")
+                red_flags.append(f"התכווצות בהכנסות (Contracting revenue growth: {rev_growth:.1%}): מצביעה על אובדן נתח שוק.")
                 score += 0.30
             elif rev_growth <= 0.0:
-                red_flags.append(f"Flat/stagnant top-line growth ({rev_growth:.1%}).")
+                red_flags.append(f"צמיחת הכנסות שטוחה/קפואה ({rev_growth:.1%}).")
                 score += 0.15
             else:
-                justification.append(f"Top-line expansion intact: Revenue growth at +{rev_growth:.1%}.")
+                justification.append(f"התרחבות הכנסות יציבה: צמיחת שורת ההכנסות עומדת על +{rev_growth:.1%}.")
 
         # 4. Severe Drawdown Guard (Deeper than -28% approaches structural breakdown)
         if request.distance_from_52w_high_pct <= -0.28:
             red_flags.append(
-                f"Severe price collapse of {request.distance_from_52w_high_pct:.1%} "
-                "approaches structural trend invalidation."
+                f"נפילת מחיר חדה של {request.distance_from_52w_high_pct:.1%} "
+                "מתקרבת לשבירת מגמה מבנית של המניה."
             )
             score += 0.25
 
@@ -234,7 +234,7 @@ class AISkeptic:
             lower_h = headline.lower()
             for kw in adverse_keywords:
                 if kw in lower_h:
-                    detected_adverse.append(f"Adverse disclosure detected: '{kw}' in headline: {headline}")
+                    detected_adverse.append(f"דיווח שלילי זוהה ({kw}): {headline}")
                     score += 0.35
                     break
         red_flags.extend(detected_adverse)
@@ -246,21 +246,21 @@ class AISkeptic:
         if verdict == "REJECTED":
             justification.insert(
                 0,
-                f"REJECTED: Skepticism score {final_score:.2f} meets or exceeds risk threshold {rejection_threshold:.2f}."
+                f"נדחה (REJECTED): ציון ספקנות {final_score:.2f} עולה על סף הסיכון המותר {rejection_threshold:.2f}."
             )
             counter_thesis = (
-                f"Candidate {request.ticker} exhibits notable vulnerabilities ({', '.join(red_flags[:2])}). "
-                "Market selloff appears justified rather than an overreaction. Capital protection warrants rejection."
+                f"המניה {request.ticker} מציגה נקודות תורפה משמעותיות ({', '.join(red_flags[:2])}). "
+                "הירידות במחיר נראות מוצדקות ואינן תגובת יתר חולפת בלבד. הגנת ההון מחייבת דחייה."
             )
         else:
             justification.insert(
                 0,
-                f"APPROVED: Skepticism score {final_score:.2f} is well below threshold {rejection_threshold:.2f}. "
-                "Fundamentals demonstrate resilience."
+                f"אושר (APPROVED): ציון ספקנות {final_score:.2f} נמוך מסף הסיכון {rejection_threshold:.2f}. "
+                "הנתונים הפונדמנטליים מפגינים חוסן ועמידות עסקית."
             )
             counter_thesis = (
-                f"While {request.ticker} has corrected {request.distance_from_52w_high_pct:.1%}, core revenue "
-                "and cash flows remain defensible. Downside appears to be a cyclical dip rather than insolvency."
+                f"על אף שהמניה {request.ticker} תיקנה ב-{request.distance_from_52w_high_pct:.1%}, הכנסות הליבה "
+                "ותזרימי המזומנים נותרו יציבים. הירידה נראית כתיקון מחזורי זמני ולא כמשבר חדלות פירעון."
             )
 
         return SkepticVerdict(
@@ -275,23 +275,24 @@ class AISkeptic:
         )
 
     def _build_adversarial_prompt(self, request: SkepticAnalysisRequest) -> str:
-        """Constructs detailed adversarial evaluation prompt for Gemini LLM."""
+        """Constructs detailed adversarial evaluation prompt for Gemini LLM in professional Hebrew."""
         return (
             f"You are the Adversarial Skeptic and Lead Forensic Analyst for a quantitative trend fund.\n"
-            f"Analyze the following candidate stock that has triggered a Value Dip setup:\n\n"
-            f"Ticker: {request.ticker}\n"
-            f"Current Price: ${request.current_price:.2f}\n"
-            f"Retracement from 52-Week Peak: {request.distance_from_52w_high_pct:.1%}\n"
-            f"Sector: {request.sector}\n"
-            f"Industry: {request.industry}\n"
-            f"Fundamental Indicators: {json.dumps(request.financials or {}, indent=2)}\n"
-            f"News / Catalysts: {json.dumps(request.news_headlines or [], indent=2)}\n\n"
-            f"TASK:\n"
-            f"1. Play Devil's Advocate. Uncover reasons why this dip is NOT an overreaction but a value trap.\n"
-            f"2. Check for accounting irregularities, debt maturity cliffs, litigation, technological displacement, or margin decay.\n"
-            f"3. Assign a skepticism_score between 0.0 (pristine/safe) and 1.0 (deadly value trap).\n"
-            f"4. If skepticism_score >= 0.60, set verdict to 'REJECTED'. Otherwise 'APPROVED'.\n"
-            f"5. Provide concrete red_flags and concise bullet justifications.\n"
+            f"Analyze the stock data and provide your professional financial critique and decision strictly in Hebrew (עברית מקצועית).\n\n"
+            f"נתוני המניה המועמדת לבדיקה:\n"
+            f"טיקר (Ticker): {request.ticker}\n"
+            f"מחיר נוכחי: ${request.current_price:.2f}\n"
+            f"נסיגה משיא שנתי (52W Pullback): {request.distance_from_52w_high_pct:.1%}\n"
+            f"סקטור: {request.sector}\n"
+            f"תעשייה: {request.industry}\n"
+            f"אינדיקטורים פונדמנטליים: {json.dumps(request.financials or {}, indent=2, ensure_ascii=False)}\n"
+            f"חדשות וכותרות: {json.dumps(request.news_headlines or [], indent=2, ensure_ascii=False)}\n\n"
+            f"הנחיות ומשימות (CRITICAL INSTRUCTIONS):\n"
+            f"1. שחק את תפקיד 'פרקליט השטן' (Devil's Advocate). אתר סיבות מדוע ירידת המחיר הנוכחית איננה תגובת יתר, אלא מלכודת ערך מסוכנת (Value Trap).\n"
+            f"2. בדוק אי-סדרים חשבונאיים, עומסי חוב ומחזורי פירעון קרובים, תביעות משפטיות, שחיקת שולי רווח או איום של שינוי טכנולוגי.\n"
+            f"3. קבע ציון ספקנות (skepticism_score) בין 0.0 (חברה יציבה וחסינה ללא סיכון מבני) לבין 1.0 (מלכודת ערך קטלנית).\n"
+            f"4. אם skepticism_score >= 0.60, קבע את ערך ה-verdict כ-'REJECTED'. אחרת, קבע 'APPROVED'.\n"
+            f"5. ספק נורות אזהרה (red_flags), נימוקים אנליטיים (justification), ותזת נגד (counter_thesis) אך ורק בעברית מקצועית, שוטפת, בהירה ועסקית.\n"
         )
 
     async def _call_gemini_api(
@@ -502,16 +503,16 @@ class AISkeptic:
 
         if score < 0.35:
             hub_verdict: Literal["GOLDEN_OPPORTUNITY", "FOOLS_TRAP", "HIGH_RISK_DIP"] = "GOLDEN_OPPORTUNITY"
-            default_catalyst = "Strong fundamental moat and margin expansion driving mean-reversion."
+            default_catalyst = "חפיר כלכלי ויתרון תחרותי חזק לצד התרחבות שולי הרווח תומכים בחזרה מהירה לממוצע."
         elif score < 0.60:
             hub_verdict = "HIGH_RISK_DIP"
-            default_catalyst = "Short-term momentum stabilization and upcoming quarterly earnings confirmation."
+            default_catalyst = "התייצבות מומנטום בטווח הקצר ואישור תוצאות בדוח הרבעוני הקרוב."
         else:
             hub_verdict = "FOOLS_TRAP"
-            default_catalyst = "Protracted restructuring required before risk-reward profile turns favorable."
+            default_catalyst = "נדרש תהליך הבראה וארגון מחדש ממושך לפני שיחס הסיכוי-סיכון ישתפר."
 
         argument = verdict.counter_thesis or (
-            " | ".join(verdict.red_flags) if verdict.red_flags else "No major structural red flags detected."
+            " | ".join(verdict.red_flags) if verdict.red_flags else "לא זוהו נורות אזהרה מבניות חריגות."
         )
 
         return AISkepticEvaluation(

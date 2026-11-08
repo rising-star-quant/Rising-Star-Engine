@@ -569,6 +569,29 @@ class TestAISkeptic:
         assert len(batch_verdicts) == 1
         assert batch_verdicts[0].ticker == "SYNC1"
 
+    def test_hebrew_prompt_and_analysis_contract(self, ai_skeptic):
+        """Verifies adversarial prompt strictly demands Hebrew output and offline evaluator produces Hebrew critique."""
+        req = SkepticAnalysisRequest(
+            ticker="HEB1",
+            current_price=120.0,
+            distance_from_52w_high_pct=-0.22,
+            sector="טכנולוגיה",
+            industry="תוכנה ארגונית",
+            financials={"debt_to_equity": 0.9, "revenue_growth_qoq": 0.08, "free_cash_flow": 50_000_000.0},
+        )
+        prompt = ai_skeptic._build_adversarial_prompt(req)
+
+        # Prompt explicitly instructs Hebrew output
+        assert "Analyze the stock data and provide your professional financial critique and decision strictly in Hebrew (עברית מקצועית)." in prompt
+        assert "עברית מקצועית" in prompt
+        assert "פרקליט השטן" in prompt
+
+        # Offline heuristic produces valid Hebrew justification and counter thesis
+        verdict = ai_skeptic._evaluate_deterministic_heuristic(req, rejection_threshold=0.60)
+        assert any("אושר" in j or "מבנה הון" in j or "תזרים" in j for j in verdict.justification)
+        assert "המניה" in verdict.counter_thesis or "תיקון" in verdict.counter_thesis
+
+
 
 # =====================================================================
 # 5. EARNINGS WRECK REACTION SCANNER TESTS (MODULE 03 PRD)
