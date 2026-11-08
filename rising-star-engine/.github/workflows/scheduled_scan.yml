@@ -1,0 +1,156 @@
+name: Scheduled Market Scan - Rising Star v2.0
+
+# =============================================================================
+# Rising Star Trend Engine v2.0 - Automated Trading Day Orchestrator
+# Executes post-market close universe scans, value dip screens, adversarial AI
+# skeptic verification, dynamic volatility sizing, and Telegram alert dispatch.
+# =============================================================================
+
+on:
+  schedule:
+    # Runs Monday through Friday at 21:30 UTC (approx 4:30 PM EST / 5:30 PM EDT, 30m post-market close)
+    # Cron format: Minute Hour DayOfMonth Month DayOfWeek
+    # 1-5 represents Monday through Friday
+    - cron: '30 21 * * 1-5'
+
+  workflow_dispatch:
+    inputs:
+      notify:
+        description: 'Dispatch qualified trade alerts to Telegram'
+        required: true
+        type: boolean
+        default: true
+      stage:
+        description: 'Pipeline execution stage'
+        required: true
+        type: choice
+        options:
+          - full
+          - universe
+          - value-dip
+          - risk-ai
+          - earnings
+        default: full
+      account_balance:
+        description: 'Account balance in USD for position sizing'
+        required: false
+        type: string
+        default: '100000.0'
+      indices:
+        description: 'Index universes to scan (space-delimited)'
+        required: false
+        type: string
+        default: 'SP400 RUSSELL1000 RUSSELL2000'
+      force_offline:
+        description: 'Force deterministic heuristic mode (bypass live AI model & mock Telegram)'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: scheduled-market-scan
+  cancel-in-progress: false
+
+jobs:
+  run-pipeline:
+    name: Execute Headless Trend Engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      RSTE_ENV: production
+      PYTHONUNBUFFERED: "1"
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      RSTE_TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      RSTE_TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    steps:
+      # -----------------------------------------------------------------------
+      # Step 1: Checkout Repository
+      # -----------------------------------------------------------------------
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Step 2: Set up Python 3.11 Runtime with Pip Caching
+      # -----------------------------------------------------------------------
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: "**/requirements.txt"
+
+      # -----------------------------------------------------------------------
+      # Step 3: Install Production Dependencies
+      # -----------------------------------------------------------------------
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          if [ -f "requirements.txt" ]; then
+            pip install -r requirements.txt
+          elif [ -f "rising-star-engine/requirements.txt" ]; then
+            pip install -r rising-star-engine/requirements.txt
+          fi
+
+      # -----------------------------------------------------------------------
+      # Step 4: Execute Main Headless Pipeline
+      # -----------------------------------------------------------------------
+      - name: Run Market Scan Pipeline
+        run: |
+          # Determine path layout (standalone vs monorepo root)
+          if [ -d "rising-star-engine" ]; then
+            export PYTHONPATH=rising-star-engine
+          else
+            export PYTHONPATH=.
+          fi
+
+          # Prepare arguments based on trigger source
+          NOTIFY_FLAG="--notify"
+          STAGE_ARG="full"
+          BALANCE_ARG="100000.0"
+          INDICES_ARGS="SP400 RUSSELL1000 RUSSELL2000"
+          OFFLINE_FLAG=""
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ github.event.inputs.notify }}" = "false" ]; then
+              NOTIFY_FLAG=""
+            fi
+            STAGE_ARG="${{ github.event.inputs.stage }}"
+            BALANCE_ARG="${{ github.event.inputs.account_balance }}"
+            INDICES_ARGS="${{ github.event.inputs.indices }}"
+            if [ "${{ github.event.inputs.force_offline }}" = "true" ]; then
+              OFFLINE_FLAG="--force-offline"
+            fi
+          fi
+
+          echo "=========================================================="
+          echo "Starting Rising Star Trend Engine v2.0 Scheduled Scan"
+          echo "Trigger: ${{ github.event_name }}"
+          echo "Stage: ${STAGE_ARG}"
+          echo "Indices: ${INDICES_ARGS}"
+          echo "Balance: \$${BALANCE_ARG}"
+          echo "Notify: ${NOTIFY_FLAG:-disabled}"
+          echo "=========================================================="
+
+          python -m src.main \
+            --stage "${STAGE_ARG}" \
+            --indices ${INDICES_ARGS} \
+            --account-balance "${BALANCE_ARG}" \
+            ${NOTIFY_FLAG} \
+            ${OFFLINE_FLAG} \
+            --output scan_results.json
+
+      # -----------------------------------------------------------------------
+      # Step 5: Archive Scan Output Artifacts
+      # -----------------------------------------------------------------------
+      - name: Upload Scan Results Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: market-scan-results-${{ github.run_id }}
+          path: scan_results.json
+          if-no-files-found: ignore
+          retention-days: 14
